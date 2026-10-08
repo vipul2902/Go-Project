@@ -1,0 +1,26 @@
+# Local development stack. Services are grouped into profiles so only what is
+# needed runs on a memory-constrained machine:
+#   docker compose --profile core up          # API (+ Postgres/Redis from Phase 2/7)
+#   docker compose --profile observability up # Prometheus/Grafana (Phase 16)
+name: clouddeploy
+
+services:
+  api:
+    profiles: ["core"]
+    build:
+      context: .
+      args:
+        VERSION: compose
+    environment:
+      APP_ENV: development
+      PORT: "8080"
+      LOG_LEVEL: info
+    ports:
+      - "8080:8080"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 128m
