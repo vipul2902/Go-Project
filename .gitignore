@@ -1,0 +1,35 @@
+# Build output
+/bin/
+/dist/
+*.test
+*.out
+coverage.*
+
+# Secrets / local config — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+kubeconfig*
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+*.tfplan
+
+# Frontend
+node_modules/
+web/dist/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
