@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vipul2902/clouddeploy/internal/auth"
 	"github.com/vipul2902/clouddeploy/internal/config"
 	"github.com/vipul2902/clouddeploy/internal/database"
 	"github.com/vipul2902/clouddeploy/internal/httpapi"
@@ -51,23 +50,20 @@ func run() error {
 	defer pool.Close()
 	logger.Info("database connected", "max_conns", cfg.DBMaxConns)
 
-	tokens, err := auth.NewTokenIssuer([]byte(cfg.JWTSecret), cfg.AccessTokenTTL)
-	if err != nil {
-		return err
-	}
-	authSvc, err := auth.NewService(pool, tokens, cfg.RefreshTokenTTL)
+	handler, err := httpapi.NewApp(pool, httpapi.AppConfig{
+		Logger:          logger,
+		Version:         version,
+		JWTSecret:       []byte(cfg.JWTSecret),
+		AccessTokenTTL:  cfg.AccessTokenTTL,
+		RefreshTokenTTL: cfg.RefreshTokenTTL,
+	})
 	if err != nil {
 		return err
 	}
 
 	srv := &http.Server{
-		Addr: cfg.Addr(),
-		Handler: httpapi.NewRouter(httpapi.Deps{
-			Logger:  logger,
-			Version: version,
-			Checks:  map[string]httpapi.ReadinessCheck{"postgres": pool.Ping},
-			Auth:    auth.NewHandler(authSvc),
-		}),
+		Addr:              cfg.Addr(),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       cfg.ReadTimeout,
 		WriteTimeout:      cfg.WriteTimeout,

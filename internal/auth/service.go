@@ -2,17 +2,16 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/mail"
-	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/vipul2902/clouddeploy/internal/slug"
 )
 
 // Domain errors mapped to HTTP responses by the handler.
@@ -112,8 +111,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (User, TokenPa
 	if err != nil {
 		return User{}, TokenPair{}, err
 	}
-	slug := slugify(in.OrganizationName) + "-" + randomSuffix()
-	u, err := s.store.createUserWithOrg(ctx, in.Email, in.Name, hash, in.OrganizationName, slug)
+	u, err := s.store.createUserWithOrg(ctx, in.Email, in.Name, hash, in.OrganizationName, slug.WithSuffix(in.OrganizationName))
 	if err != nil {
 		return User{}, TokenPair{}, err
 	}
@@ -219,25 +217,4 @@ func (s *Service) issuePair(ctx context.Context, userID string) (TokenPair, erro
 		return TokenPair{}, err
 	}
 	return TokenPair{AccessToken: access, AccessExpiresAt: accessExp, RefreshToken: refresh, RefreshExpiresAt: expires, TokenType: "Bearer"}, nil
-}
-
-var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
-
-// slugify turns a display name into a URL-safe slug.
-func slugify(name string) string {
-	s := strings.Trim(nonSlug.ReplaceAllString(strings.ToLower(name), "-"), "-")
-	if len(s) > 50 {
-		s = strings.TrimRight(s[:50], "-")
-	}
-	if s == "" {
-		return "org"
-	}
-	return s
-}
-
-// randomSuffix keeps org slugs unique without a check-then-insert race.
-func randomSuffix() string {
-	b := make([]byte, 3)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
 }

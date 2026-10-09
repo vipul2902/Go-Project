@@ -9,6 +9,8 @@ import (
 	"github.com/vipul2902/clouddeploy/internal/auth"
 	"github.com/vipul2902/clouddeploy/internal/httpx"
 	"github.com/vipul2902/clouddeploy/internal/middleware"
+	"github.com/vipul2902/clouddeploy/internal/organizations"
+	"github.com/vipul2902/clouddeploy/internal/projects"
 )
 
 // ReadinessCheck reports whether a dependency (database, cache, ...) is usable.
@@ -20,8 +22,10 @@ type Deps struct {
 	Version string
 	// Checks are run by /readyz; keyed by dependency name.
 	Checks map[string]ReadinessCheck
-	// Auth is optional so health endpoints can be tested in isolation.
-	Auth *auth.Handler
+	// Handlers are optional so health endpoints can be tested in isolation.
+	Auth          *auth.Handler
+	Organizations *organizations.Handler
+	Projects      *projects.Handler
 }
 
 // NewRouter builds the root handler with all routes and middleware.
@@ -32,6 +36,12 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("GET /readyz", handleReadiness(d.Logger, d.Checks))
 	if d.Auth != nil {
 		d.Auth.Routes(mux)
+		if d.Organizations != nil {
+			d.Organizations.Routes(mux, d.Auth.RequireAuth)
+		}
+		if d.Projects != nil {
+			d.Projects.Routes(mux, d.Auth.RequireAuth)
+		}
 	}
 
 	// Catch-all so unknown routes get the standard error envelope.

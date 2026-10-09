@@ -2,7 +2,7 @@
 
 A cloud-native deployment platform: register an application, define its environments, build it, deploy it to Kubernetes, and track status, health, logs and history — with Azure infrastructure provisioned by Terraform.
 
-> **Status:** Phase 3 (authentication & RBAC) complete. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
+> **Status:** Phase 4 (organizations & projects) complete. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
 
 ## Architecture (target)
 
@@ -70,11 +70,11 @@ All configuration comes from environment variables (see [.env.example](.env.exam
 |---|---|
 | `GET /healthz` | **Liveness** check. The process is up. It never checks dependencies, so a database outage won't cause restart loops. |
 | `GET /readyz` | **Readiness** check. Checks PostgreSQL and returns `503` if it's unreachable, so traffic is routed away from this instance. |
-| `POST /api/v1/auth/register` | Creates a user and a new organization (the user becomes its admin) and returns tokens |
-| `POST /api/v1/auth/login` | Exchanges email and password for an access token and a refresh token |
-| `POST /api/v1/auth/refresh` | Rotates the refresh token. A reused token revokes the whole session. |
-| `POST /api/v1/auth/logout` | Revokes the session's refresh tokens |
-| `GET /api/v1/auth/me` | Returns the current user and their organization roles. Requires `Authorization: Bearer <token>`. |
+| `/api/v1/auth/*` | Register, login, refresh, logout, me |
+| `/api/v1/organizations/*` | Organizations and member management (RBAC) |
+| `/api/v1/projects/*` | Project CRUD with cursor pagination and ETag concurrency control |
+
+The full reference is in [docs/api.md](docs/api.md).
 
 Example:
 
@@ -93,10 +93,11 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 
 ## Roadmap
 
-0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects · 5 environments · 6 deployment domain · 7 Redis · 8 async worker · 9 image builds · 10 local k8s · 11 Helm · 12 monitoring/logs · 13 rollback · 14 dashboard · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
+0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments · 6 deployment domain · 7 Redis · 8 async worker · 9 image builds · 10 local k8s · 11 Helm · 12 monitoring/logs · 13 rollback · 14 dashboard · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
 
 ## Documentation
 
+- [API reference](docs/api.md)
 - [Architecture decisions](docs/adr/)
 - [Local development](docs/local-development.md)
 - [Database design, ERD and indexes](docs/database.md)
