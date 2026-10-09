@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/vipul2902/clouddeploy/internal/config"
+	"github.com/vipul2902/clouddeploy/internal/database"
 	"github.com/vipul2902/clouddeploy/internal/httpapi"
 )
 
@@ -40,9 +41,22 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	pool, err := database.Open(ctx, cfg.DatabaseURL, cfg.PoolConfig())
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	// Deferred calls run LIFO: the pool closes after the server has drained,
+	// so in-flight requests can still use the database during shutdown.
+	defer pool.Close()
+	logger.Info("database connected", "max_conns", cfg.DBMaxConns)
+
 	srv := &http.Server{
-		Addr:              cfg.Addr(),
-		Handler:           httpapi.NewRouter(httpapi.Deps{Logger: logger, Version: version}),
+		Addr: cfg.Addr(),
+		Handler: httpapi.NewRouter(httpapi.Deps{
+			Logger:  logger,
+			Version: version,
+			Checks:  map[string]httpapi.ReadinessCheck{"postgres": pool.Ping},
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       cfg.ReadTimeout,
 		WriteTimeout:      cfg.WriteTimeout,

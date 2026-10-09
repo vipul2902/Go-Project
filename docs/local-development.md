@@ -14,12 +14,13 @@ The reference machine is an M1 MacBook Air with 8 GB RAM, running Colima with 4 
 |---|---|
 | Go | 1.27.1 (Homebrew) |
 | Docker / Colima | Colima 0.10.3, docker runtime, aarch64 |
-| Docker Compose plugin | **Broken.** The `~/.docker/cli-plugins/docker-compose` symlink points to a removed Docker Desktop install. |
+| Docker Compose plugin | 5.6.0 (Homebrew). The symlink was repaired on 2026-10-09; it had pointed to a removed Docker Desktop install. |
+| Native PostgreSQL | Versions 16 and 17 are installed under `/Library/PostgreSQL` and occupy ports **5432 and 5433**. Our container uses **15432**. |
 | psql | 14.14 (client only) |
 | gh | 2.96.0, authenticated |
 | kubectl, Helm, Terraform | Not installed. They will be added in Phases 10, 11 and 17. |
 
-### Fixing the Compose plugin
+### Fixing the Compose plugin (if it breaks again)
 
 ```bash
 brew install docker-compose

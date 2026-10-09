@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/vipul2902/clouddeploy/internal/database"
 )
 
 // Environment names supported by the application.
@@ -30,6 +32,12 @@ type Config struct {
 	WriteTimeout    time.Duration
 	IdleTimeout     time.Duration
 	ShutdownTimeout time.Duration
+
+	DatabaseURL       string
+	DBMaxConns        int
+	DBMinConns        int
+	DBMaxConnLifetime time.Duration
+	DBMaxConnIdleTime time.Duration
 }
 
 // Load reads configuration from the environment, applying defaults and
@@ -49,6 +57,21 @@ func load(getenv func(string) string) (Config, error) {
 		WriteTimeout:    parseDuration(getenv, "HTTP_WRITE_TIMEOUT", 15*time.Second, &errs),
 		IdleTimeout:     parseDuration(getenv, "HTTP_IDLE_TIMEOUT", 60*time.Second, &errs),
 		ShutdownTimeout: parseDuration(getenv, "SHUTDOWN_TIMEOUT", 20*time.Second, &errs),
+
+		DatabaseURL: getenv("DATABASE_URL"),
+		// Small defaults: each Postgres connection costs ~5-10 MB server-side, and
+		// total connections = replicas x MaxConns must stay under max_connections.
+		DBMaxConns:        parseInt(getenv, "DB_MAX_CONNS", 10, &errs),
+		DBMinConns:        parseInt(getenv, "DB_MIN_CONNS", 1, &errs),
+		DBMaxConnLifetime: parseDuration(getenv, "DB_MAX_CONN_LIFETIME", 30*time.Minute, &errs),
+		DBMaxConnIdleTime: parseDuration(getenv, "DB_MAX_CONN_IDLE_TIME", 5*time.Minute, &errs),
+	}
+
+	if cfg.DatabaseURL == "" {
+		errs = append(errs, errors.New("DATABASE_URL: required"))
+	}
+	if cfg.DBMaxConns < 1 || cfg.DBMinConns < 0 || cfg.DBMinConns > cfg.DBMaxConns {
+		errs = append(errs, fmt.Errorf("DB_MAX_CONNS/DB_MIN_CONNS: need 0 <= min (%d) <= max (%d), max >= 1", cfg.DBMinConns, cfg.DBMaxConns))
 	}
 
 	switch cfg.Env {
@@ -70,6 +93,16 @@ func load(getenv func(string) string) (Config, error) {
 
 // Addr returns the listen address for the HTTP server.
 func (c Config) Addr() string { return fmt.Sprintf(":%d", c.Port) }
+
+// PoolConfig returns the database pool settings.
+func (c Config) PoolConfig() database.PoolConfig {
+	return database.PoolConfig{
+		MaxConns:        int32(c.DBMaxConns),
+		MinConns:        int32(c.DBMinConns),
+		MaxConnLifetime: c.DBMaxConnLifetime,
+		MaxConnIdleTime: c.DBMaxConnIdleTime,
+	}
+}
 
 // IsProduction reports whether the app runs in production.
 func (c Config) IsProduction() bool { return c.Env == EnvProduction }

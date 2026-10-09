@@ -2,7 +2,7 @@
 
 A cloud-native deployment platform: register an application, define its environments, build it, deploy it to Kubernetes, and track status, health, logs and history — with Azure infrastructure provisioned by Terraform.
 
-> **Status:** Phase 1 (scaffolding) complete. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
+> **Status:** Phase 2 (database) complete. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
 
 ## Architecture (target)
 
@@ -30,18 +30,22 @@ It is a **modular monolith**: one deployable Go binary with clear internal packa
 Prerequisites: Go 1.27+, Docker (Colima works), GNU Make.
 
 ```bash
-cp .env.example .env      # local config; never committed
-make dev                  # run the API on :8080
-curl localhost:8080/healthz
+cp .env.example .env      # then replace every change-me value (openssl rand -hex 24)
+make db-up                # Postgres on 127.0.0.1:15432
+make migrate seed         # schema + dev data
+make dev                  # run the API natively on :8080
+curl localhost:8080/readyz
 ```
 
 | Command | Purpose |
 |---|---|
 | `make test` | Unit tests with the race detector |
+| `make test-integration` | Integration tests against real Postgres (`clouddeploy_test` database) |
+| `make db-up` / `make migrate` / `make seed` / `make psql` | Database workflow (see [docs/database.md](docs/database.md)) |
 | `make lint` | gofmt check and `go vet` |
 | `make build` | Static binary in `bin/api` |
 | `make docker-build` | Container image `clouddeploy-api` |
-| `make docker-up` / `make docker-down` | Local stack through Docker Compose (`core` profile) |
+| `make docker-up` / `make docker-down` | Full stack in containers: Postgres, then migrate job, then API |
 
 ## Configuration
 
@@ -54,13 +58,16 @@ All configuration comes from environment variables (see [.env.example](.env.exam
 | `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
 | `HTTP_READ_TIMEOUT` / `HTTP_WRITE_TIMEOUT` / `HTTP_IDLE_TIMEOUT` | `10s` / `15s` / `60s` | Go duration syntax |
 | `SHUTDOWN_TIMEOUT` | `20s` | Maximum time allowed to drain in-flight requests on SIGTERM |
+| `DATABASE_URL` | *(required)* | PostgreSQL connection string |
+| `DB_MAX_CONNS` / `DB_MIN_CONNS` | `10` / `1` | Pool bounds. Keep `replicas × max` below the server's `max_connections`. |
+| `DB_MAX_CONN_LIFETIME` / `DB_MAX_CONN_IDLE_TIME` | `30m` / `5m` | Connection recycling |
 
 ## Endpoints (so far)
 
 | Endpoint | Purpose |
 |---|---|
 | `GET /healthz` | **Liveness** check. The process is up. It never checks dependencies, so a database outage won't cause restart loops. |
-| `GET /readyz` | **Readiness** check. Runs the dependency checks and returns `503` if any fail, so traffic is routed away from this instance. |
+| `GET /readyz` | **Readiness** check. Checks PostgreSQL and returns `503` if it's unreachable, so traffic is routed away from this instance. |
 
 All errors use one envelope:
 
@@ -72,9 +79,10 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 
 ## Roadmap
 
-0 audit ✅ · 1 scaffolding ✅ · 2 database · 3 auth · 4 orgs/projects · 5 environments · 6 deployment domain · 7 Redis · 8 async worker · 9 image builds · 10 local k8s · 11 Helm · 12 monitoring/logs · 13 rollback · 14 dashboard · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
+0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth · 4 orgs/projects · 5 environments · 6 deployment domain · 7 Redis · 8 async worker · 9 image builds · 10 local k8s · 11 Helm · 12 monitoring/logs · 13 rollback · 14 dashboard · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
 
 ## Documentation
 
 - [Architecture decisions](docs/adr/)
 - [Local development](docs/local-development.md)
+- [Database design, ERD and indexes](docs/database.md)
