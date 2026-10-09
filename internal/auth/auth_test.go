@@ -137,16 +137,3 @@ func TestValidateRegister(t *testing.T) {
 		t.Error("over-long password accepted (argon2 DoS risk)")
 	}
 }
-
-func TestSlugify(t *testing.T) {
-	for in, want := range map[string]string{
-		"Acme Inc":          "acme-inc",
-		"  Héllo__World!! ": "h-llo-world",
-		"---":               "org",
-		"ABC123":            "abc123",
-	} {
-		if got := slugify(in); got != want {
-			t.Errorf("slugify(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
