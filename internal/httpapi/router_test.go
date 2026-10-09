@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vipul2902/clouddeploy/internal/httpx"
 	"github.com/vipul2902/clouddeploy/internal/middleware"
 )
 
@@ -82,11 +83,11 @@ func TestNotFoundUsesErrorEnvelope(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
-	var body errorBody
+	var body httpx.ErrorBody
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Error.Code != CodeNotFound || body.Error.RequestID != "abc-123" {
+	if body.Error.Code != httpx.CodeNotFound || body.Error.RequestID != "abc-123" {
 		t.Errorf("unexpected error body: %+v", body)
 	}
 }
@@ -105,7 +106,7 @@ func TestPanicReturns500Envelope(t *testing.T) {
 		http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("boom") }),
 		middleware.RequestID,
 		middleware.Recover(logger, func(w http.ResponseWriter, r *http.Request) {
-			WriteError(w, r, http.StatusInternalServerError, CodeInternal, "internal server error")
+			httpx.WriteError(w, r, http.StatusInternalServerError, httpx.CodeInternal, "internal server error")
 		}),
 	)
 	rec := do(t, h, http.MethodGet, "/", nil)

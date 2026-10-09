@@ -7,12 +7,14 @@ import (
 	"time"
 )
 
+const testJWTSecret = "test-secret-at-least-32-bytes-long!!"
+
 func env(m map[string]string) func(string) string {
 	return func(k string) string { return m[k] }
 }
 
 func TestLoadDefaults(t *testing.T) {
-	cfg, err := load(env(map[string]string{"DATABASE_URL": "postgres://x"}))
+	cfg, err := load(env(map[string]string{"DATABASE_URL": "postgres://x", "JWT_SECRET": testJWTSecret}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -30,6 +32,7 @@ func TestLoadDefaults(t *testing.T) {
 func TestLoadOverrides(t *testing.T) {
 	cfg, err := load(env(map[string]string{
 		"DATABASE_URL":     "postgres://x",
+		"JWT_SECRET":       testJWTSecret,
 		"APP_ENV":          "production",
 		"PORT":             "9090",
 		"LOG_LEVEL":        "debug",
@@ -50,11 +53,12 @@ func TestLoadReportsAllErrors(t *testing.T) {
 		"LOG_LEVEL":         "loud",
 		"HTTP_READ_TIMEOUT": "-1s",
 		"DB_MIN_CONNS":      "50",
+		"JWT_SECRET":        "too-short",
 	}))
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	for _, want := range []string{"APP_ENV", "PORT", "LOG_LEVEL", "HTTP_READ_TIMEOUT", "DATABASE_URL", "DB_MIN_CONNS"} {
+	for _, want := range []string{"APP_ENV", "PORT", "LOG_LEVEL", "HTTP_READ_TIMEOUT", "DATABASE_URL", "DB_MIN_CONNS", "JWT_SECRET"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %s", err, want)
 		}

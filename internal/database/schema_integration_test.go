@@ -2,41 +2,20 @@
 
 // Integration tests run against a real PostgreSQL (make test-integration).
 // They use a dedicated database so development data is never touched.
-package database
+package database_test
 
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/vipul2902/clouddeploy/internal/database"
+	"github.com/vipul2902/clouddeploy/internal/database/dbtest"
 )
-
-func testPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
-		t.Fatal("TEST_DATABASE_URL is required for integration tests")
-	}
-	ctx := context.Background()
-	pool, err := Open(ctx, url, PoolConfig{MaxConns: 4, MaxConnLifetime: time.Minute})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-
-	// Start every test from a clean, fully migrated schema.
-	if err := Migrate(ctx, pool, "reset"); err != nil {
-		t.Fatal(err)
-	}
-	if err := Migrate(ctx, pool, "up"); err != nil {
-		t.Fatal(err)
-	}
-	return pool
-}
 
 // fixture inserts an org, project and environment and returns the IDs.
 func fixture(t *testing.T, pool *pgxpool.Pool) (projectID, envID string) {
@@ -67,19 +46,19 @@ const (
 )
 
 func TestMigrationsRoundTrip(t *testing.T) {
-	pool := testPool(t)
+	pool := dbtest.New(t)
 	ctx := context.Background()
 	// down then up again proves the Down section is complete and correct.
-	if err := Migrate(ctx, pool, "down"); err != nil {
+	if err := database.Migrate(ctx, pool, "down"); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(ctx, pool, "up"); err != nil {
+	if err := database.Migrate(ctx, pool, "up"); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestOnlyOneActiveDeploymentPerEnvironment(t *testing.T) {
-	pool := testPool(t)
+	pool := dbtest.New(t)
 	ctx := context.Background()
 	projectID, envID := fixture(t, pool)
 
@@ -102,7 +81,7 @@ func TestOnlyOneActiveDeploymentPerEnvironment(t *testing.T) {
 }
 
 func TestIdempotencyKeyIsUniquePerEnvironment(t *testing.T) {
-	pool := testPool(t)
+	pool := dbtest.New(t)
 	ctx := context.Background()
 	projectID, envID := fixture(t, pool)
 
@@ -117,7 +96,7 @@ func TestIdempotencyKeyIsUniquePerEnvironment(t *testing.T) {
 }
 
 func TestConcurrentDeploysOnlyOneWins(t *testing.T) {
-	pool := testPool(t)
+	pool := dbtest.New(t)
 	ctx := context.Background()
 	projectID, envID := fixture(t, pool)
 
@@ -145,7 +124,7 @@ func TestConcurrentDeploysOnlyOneWins(t *testing.T) {
 }
 
 func TestConstraints(t *testing.T) {
-	pool := testPool(t)
+	pool := dbtest.New(t)
 	ctx := context.Background()
 	projectID, envID := fixture(t, pool)
 
@@ -178,7 +157,7 @@ func TestConstraints(t *testing.T) {
 }
 
 func TestSoftDeletedProjectNameReusable(t *testing.T) {
-	pool := testPool(t)
+	pool := dbtest.New(t)
 	ctx := context.Background()
 	fixture(t, pool)
 
@@ -195,7 +174,7 @@ func TestSoftDeletedProjectNameReusable(t *testing.T) {
 }
 
 func TestUpdatedAtTrigger(t *testing.T) {
-	pool := testPool(t)
+	pool := dbtest.New(t)
 	ctx := context.Background()
 	projectID, _ := fixture(t, pool)
 

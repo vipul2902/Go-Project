@@ -38,6 +38,10 @@ type Config struct {
 	DBMinConns        int
 	DBMaxConnLifetime time.Duration
 	DBMaxConnIdleTime time.Duration
+
+	JWTSecret       string
+	AccessTokenTTL  time.Duration
+	RefreshTokenTTL time.Duration
 }
 
 // Load reads configuration from the environment, applying defaults and
@@ -65,6 +69,16 @@ func load(getenv func(string) string) (Config, error) {
 		DBMinConns:        parseInt(getenv, "DB_MIN_CONNS", 1, &errs),
 		DBMaxConnLifetime: parseDuration(getenv, "DB_MAX_CONN_LIFETIME", 30*time.Minute, &errs),
 		DBMaxConnIdleTime: parseDuration(getenv, "DB_MAX_CONN_IDLE_TIME", 5*time.Minute, &errs),
+
+		JWTSecret: getenv("JWT_SECRET"),
+		// Short-lived access tokens bound the damage of a leaked token;
+		// long-lived refresh tokens are rotated on every use.
+		AccessTokenTTL:  parseDuration(getenv, "ACCESS_TOKEN_TTL", 15*time.Minute, &errs),
+		RefreshTokenTTL: parseDuration(getenv, "REFRESH_TOKEN_TTL", 30*24*time.Hour, &errs),
+	}
+
+	if len(cfg.JWTSecret) < 32 {
+		errs = append(errs, errors.New("JWT_SECRET: required, at least 32 bytes (openssl rand -base64 48)"))
 	}
 
 	if cfg.DatabaseURL == "" {
