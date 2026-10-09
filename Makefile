@@ -21,6 +21,10 @@ build: ## Build the API binary into bin/
 test: ## Run unit tests with the race detector
 	go test -race -count=1 ./...
 
+.PHONY: test-integration
+test-integration: ## Run integration tests against the compose Postgres (needs make db-up)
+	@set -a; source .env; set +a; go test -race -count=1 -p 1 -tags integration ./...
+
 .PHONY: cover
 cover: ## Run tests with coverage report
 	go test -race -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | tail -1
@@ -38,17 +42,33 @@ lint: ## Check formatting and run go vet (golangci-lint added in CI phase)
 tidy: ## Tidy go.mod
 	go mod tidy
 
+.PHONY: db-up
+db-up: ## Start only Postgres (run the API natively with make dev)
+	docker compose --profile deps up -d --wait
+
+.PHONY: migrate
+migrate: ## Apply migrations (CMD=up|down|reset|status)
+	@set -a; source .env; set +a; go run ./cmd/migrate $(or $(CMD),up)
+
+.PHONY: seed
+seed: ## Load development seed data (idempotent)
+	@set -a; source .env; set +a; go run ./cmd/seed
+
+.PHONY: psql
+psql: ## Open a psql shell in the Postgres container
+	docker compose exec postgres psql -U clouddeploy -d clouddeploy
+
 .PHONY: docker-build
 docker-build: ## Build the API container image
 	docker build --build-arg VERSION=$(VERSION) -t clouddeploy-api:$(VERSION) -t clouddeploy-api:latest .
 
 .PHONY: docker-up
-docker-up: ## Start the core local stack
-	docker compose --profile core up -d --build
+docker-up: ## Start Postgres, run migrations, start the API (all in containers)
+	docker compose --profile core up -d --build --wait
 
 .PHONY: docker-down
-docker-down: ## Stop the local stack
-	docker compose --profile core --profile observability down
+docker-down: ## Stop the local stack (data volume kept; add -v to wipe)
+	docker compose --profile deps --profile core --profile observability down
 
 .PHONY: clean
 clean: ## Remove build artifacts
