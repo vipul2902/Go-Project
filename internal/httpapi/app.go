@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vipul2902/clouddeploy/internal/auth"
+	"github.com/vipul2902/clouddeploy/internal/environments"
 	"github.com/vipul2902/clouddeploy/internal/organizations"
 	"github.com/vipul2902/clouddeploy/internal/projects"
 )
@@ -33,12 +34,14 @@ func NewApp(pool *pgxpool.Pool, cfg AppConfig) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	projectSvc := projects.NewService(pool)
 	return NewRouter(Deps{
 		Logger:        cfg.Logger,
 		Version:       cfg.Version,
 		Checks:        map[string]ReadinessCheck{"postgres": pool.Ping},
 		Auth:          auth.NewHandler(authSvc),
 		Organizations: organizations.NewHandler(organizations.NewService(pool)),
-		Projects:      projects.NewHandler(projects.NewService(pool)),
+		Projects:      projects.NewHandler(projectSvc),
+		Environments:  environments.NewHandler(environments.NewService(pool), projectSvc),
 	}), nil
 }

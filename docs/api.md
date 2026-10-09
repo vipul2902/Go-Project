@@ -81,3 +81,36 @@ Validation rules:
 - `name` must be a DNS-1123 label (lowercase letters, digits and `-`, up to 63 characters), because it becomes a Kubernetes resource name.
 - `repository_url` must be `https` with no embedded credentials, query or fragment.
 - `default_branch` must be a valid git branch name.
+
+## Environments
+
+Base path: `/projects/{id}/environments`. `{env}` is `development`, `staging` or `production`.
+
+| Method and path | Min. role | Notes |
+|---|---|---|
+| `GET /` | viewer | Listed in promotion order: development, staging, production |
+| `POST /` | developer (**admin for production**) | `name`, plus optional `namespace` (default `<project>-dev`, `-staging` or `-prod`), `replicas` (0–20, default 1) and `resources` |
+| `GET /{env}` | viewer | |
+| `PATCH /{env}` | developer (**admin for production**) | `replicas` and/or `resources`. All four resource values are replaced together, so each request/limit pair is always validated as a pair. |
+| `DELETE /{env}` | admin | 409 `ENVIRONMENT_HAS_DEPLOYMENTS` if it has deployment history |
+
+`resources` uses Kubernetes quantities: `{"cpu_request":"100m","cpu_limit":"500m","memory_request":"64Mi","memory_limit":"256Mi"}`.
+- CPU must be between 10m and 4000m, and memory between 16Mi and 8Gi.
+- Each request must not exceed its limit.
+
+The namespace must be a DNS-1123 label, must be unique across the whole platform, and must not be `default`, `clouddeploy` or start with `kube-`.
+
+### Variables
+
+Base path: `/projects/{id}/environments/{env}/variables`.
+
+| Method and path | Min. role | Notes |
+|---|---|---|
+| `GET /` | viewer | Secret variables show only their `secret_ref`, never a value |
+| `PUT /{KEY}` | developer (**admin for production**) | Takes exactly one of `{"value": "..."}` or `{"secret_ref": "<secret>/<key>"}`. Returns 201 when the variable is created and 200 when it's replaced. |
+| `DELETE /{KEY}` | developer (**admin for production**) | |
+
+Rules for variables:
+- Keys are `UPPER_SNAKE_CASE`. The `CLOUDDEPLOY_` and `KUBERNETES_` prefixes are reserved.
+- Values are limited to 32 KiB, and an environment can hold at most 100 variables.
+- Keys that look like credentials (`*PASSWORD*`, `*SECRET*`, `*TOKEN*`, `*API_KEY*`, `*PRIVATE_KEY*`, `*CREDENTIAL*`, `*ACCESS_KEY*`) **must** use `secret_ref`.

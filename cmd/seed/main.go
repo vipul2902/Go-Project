@@ -99,7 +99,7 @@ func statements(hash string) []stmt {
 			ON CONFLICT DO NOTHING`, []any{envDevID, envStageID, projectID}},
 		{"environment_variables", `INSERT INTO environment_variables (environment_id, key, value, is_secret, secret_ref) VALUES
 			($1, 'LOG_LEVEL', 'debug', false, NULL),
-			($1, 'DATABASE_PASSWORD', NULL, true, 'k8s:sample-api-dev/db-credentials#password')
+			($1, 'DATABASE_PASSWORD', NULL, true, 'db-credentials/password')
 			ON CONFLICT DO NOTHING`, []any{envDevID}},
 		{"deployments", `INSERT INTO deployments
 			(id, project_id, environment_id, commit_sha, image, status, triggered_by, error_message, created_at, started_at, completed_at) VALUES

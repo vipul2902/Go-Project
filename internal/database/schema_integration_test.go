@@ -190,3 +190,35 @@ func TestUpdatedAtTrigger(t *testing.T) {
 		t.Errorf("updated_at not advanced: before=%v after=%v", before, after)
 	}
 }
+
+// Migration 00002 rewrites the legacy secret_ref format before validating
+// the new CHECK; existing rows must survive the upgrade.
+func TestMigrationConvertsLegacySecretRefs(t *testing.T) {
+	pool := dbtest.New(t)
+	ctx := context.Background()
+	if err := database.Migrate(ctx, pool, "reset"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateTo(ctx, pool, 1); err != nil {
+		t.Fatal(err)
+	}
+	_, envID := fixture(t, pool)
+	if _, err := pool.Exec(ctx, `INSERT INTO environment_variables (environment_id, key, is_secret, secret_ref)
+		VALUES ($1, 'DB_PASSWORD', true, 'k8s:app-dev/db-credentials#password')`, envID); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Migrate(ctx, pool, "up"); err != nil {
+		t.Fatalf("upgrade with legacy data: %v", err)
+	}
+	var ref string
+	if err := pool.QueryRow(ctx, `SELECT secret_ref FROM environment_variables WHERE key = 'DB_PASSWORD'`).Scan(&ref); err != nil {
+		t.Fatal(err)
+	}
+	if ref != "db-credentials/password" {
+		t.Errorf("secret_ref = %q, want db-credentials/password", ref)
+	}
+	// And the new constraint now rejects the legacy format.
+	if _, err := pool.Exec(ctx, `UPDATE environment_variables SET secret_ref = 'k8s:x/y#z'`); pgCode(err) != checkViolation {
+		t.Errorf("legacy format still accepted: %v", err)
+	}
+}
