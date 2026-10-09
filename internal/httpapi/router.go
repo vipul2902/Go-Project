@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/vipul2902/clouddeploy/internal/auth"
+	"github.com/vipul2902/clouddeploy/internal/httpx"
 	"github.com/vipul2902/clouddeploy/internal/middleware"
 )
 
@@ -18,6 +20,8 @@ type Deps struct {
 	Version string
 	// Checks are run by /readyz; keyed by dependency name.
 	Checks map[string]ReadinessCheck
+	// Auth is optional so health endpoints can be tested in isolation.
+	Auth *auth.Handler
 }
 
 // NewRouter builds the root handler with all routes and middleware.
@@ -26,17 +30,20 @@ func NewRouter(d Deps) http.Handler {
 
 	mux.HandleFunc("GET /healthz", handleLiveness(d.Version))
 	mux.HandleFunc("GET /readyz", handleReadiness(d.Logger, d.Checks))
+	if d.Auth != nil {
+		d.Auth.Routes(mux)
+	}
 
 	// Catch-all so unknown routes get the standard error envelope.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		WriteError(w, r, http.StatusNotFound, CodeNotFound, "resource not found")
+		httpx.WriteError(w, r, http.StatusNotFound, httpx.CodeNotFound, "resource not found")
 	})
 
 	return middleware.Chain(mux,
 		middleware.RequestID,
 		middleware.Logger(d.Logger),
 		middleware.Recover(d.Logger, func(w http.ResponseWriter, r *http.Request) {
-			WriteError(w, r, http.StatusInternalServerError, CodeInternal, "internal server error")
+			httpx.WriteError(w, r, http.StatusInternalServerError, httpx.CodeInternal, "internal server error")
 		}),
 		middleware.SecureHeaders,
 	)
@@ -46,7 +53,7 @@ func NewRouter(d Deps) http.Handler {
 // dependencies: a database outage should not make Kubernetes restart the API.
 func handleLiveness(version string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		WriteJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": version})
+		httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": version})
 	}
 }
 
@@ -70,9 +77,9 @@ func handleReadiness(logger *slog.Logger, checks map[string]ReadinessCheck) http
 		}
 
 		if !ready {
-			WriteJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "unavailable", "checks": results})
+			httpx.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "unavailable", "checks": results})
 			return
 		}
-		WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "checks": results})
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "checks": results})
 	}
 }
