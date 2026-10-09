@@ -57,6 +57,19 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, command string) error {
 	return migrateDB(ctx, db, command)
 }
 
+// MigrateTo applies migrations up to and including version. Used by tests
+// that need to insert data in an old schema shape before migrating forward.
+func MigrateTo(ctx context.Context, pool *pgxpool.Pool, version int64) error {
+	db := stdlib.OpenDBFromPool(pool)
+	defer db.Close()
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.FS)
+	if err != nil {
+		return fmt.Errorf("init migrations: %w", err)
+	}
+	_, err = provider.UpTo(ctx, version)
+	return err
+}
+
 func migrateDB(ctx context.Context, db *sql.DB, command string) error {
 	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.FS)
 	if err != nil {

@@ -54,6 +54,17 @@ Roles are hierarchical, `admin ⊃ developer ⊃ viewer`, and unknown roles are 
 | Create or update projects; deploy, roll back or cancel | | ✓ | ✓ |
 | Manage members, delete projects, manage infrastructure | | | ✓ |
 
+## Secrets and configuration
+
+- **Secret values never enter CloudDeploy.** A secret variable stores only a reference, `<secret-name>/<key>`, to a Kubernetes Secret in the environment's own namespace. Because the format has no namespace component, a project can't reference another tenant's secrets. The database enforces the format with a CHECK constraint, and a second CHECK ensures a row holds either a value or a reference, never both.
+- **Guardrail:** a plain value is refused if its key looks like a credential, such as `DB_PASSWORD`, `GITHUB_TOKEN` or `STRIPE_API_KEY`.
+- **Change control:** changes to production configuration (the environment itself and its variables) require the admin role. Developers manage development and staging.
+- **Cluster protection:**
+  - Namespaces are unique across the platform (enforced by a unique index), so one project can't overwrite another's workloads.
+  - The `default` and `clouddeploy` namespaces, and any namespace starting with `kube-`, are reserved.
+  - CPU, memory and replica counts are capped so one tenant can't exhaust the cluster.
+- Repository URLs with embedded credentials are rejected (Phase 4).
+
 ## Request handling
 
 - Request bodies are limited to 1 MiB. Unknown JSON fields are rejected, which prevents mass-assignment tricks such as `"is_admin": true`, and the body must contain exactly one JSON object.

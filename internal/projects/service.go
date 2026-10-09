@@ -80,6 +80,20 @@ func (s *Service) Get(ctx context.Context, userID, id string) (Project, error) {
 	return p, checkRole(role, auth.RoleViewer)
 }
 
+// Access returns a live project and the caller's role in its organization,
+// for packages that own project sub-resources (environments, deployments).
+// Missing projects and non-members both yield ErrNotFound.
+func (s *Service) Access(ctx context.Context, userID, id string) (Project, auth.Role, error) {
+	p, role, err := s.getWithRole(ctx, userID, id)
+	if err != nil {
+		return Project{}, "", err
+	}
+	if role == nil {
+		return Project{}, "", ErrNotFound
+	}
+	return p, *role, nil
+}
+
 // getWithRole loads a project together with the caller's role in its
 // organization in a single query.
 func (s *Service) getWithRole(ctx context.Context, userID, id string) (Project, *auth.Role, error) {

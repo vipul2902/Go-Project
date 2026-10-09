@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/vipul2902/clouddeploy/internal/auth"
+	"github.com/vipul2902/clouddeploy/internal/environments"
 	"github.com/vipul2902/clouddeploy/internal/httpx"
 	"github.com/vipul2902/clouddeploy/internal/middleware"
 	"github.com/vipul2902/clouddeploy/internal/organizations"
@@ -26,6 +27,7 @@ type Deps struct {
 	Auth          *auth.Handler
 	Organizations *organizations.Handler
 	Projects      *projects.Handler
+	Environments  *environments.Handler
 }
 
 // NewRouter builds the root handler with all routes and middleware.
@@ -41,6 +43,9 @@ func NewRouter(d Deps) http.Handler {
 		}
 		if d.Projects != nil {
 			d.Projects.Routes(mux, d.Auth.RequireAuth)
+		}
+		if d.Environments != nil {
+			d.Environments.Routes(mux, d.Auth.RequireAuth)
 		}
 	}
 

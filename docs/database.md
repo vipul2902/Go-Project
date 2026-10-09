@@ -51,6 +51,16 @@ Every index slows down writes and uses disk, so each one above exists to serve a
 - **Connection pooling:** opening a PostgreSQL connection costs a process fork plus authentication, and each connection uses about 5–10 MB on the server. `pgxpool` reuses up to `DB_MAX_CONNS` connections. Keep `replicas × DB_MAX_CONNS` below the server's `max_connections`, which is 50 locally.
 - **Migration strategy:** migrations are forward-only in production and each has a tested `Down` for development. `TestMigrationsRoundTrip` runs down then up. Migrations run as a separate step (a Compose one-off now, a Kubernetes Job later), never on API boot, because several replicas booting at once would race each other.
 
+## Zero-downtime migration patterns (used in 00002 and 00003)
+
+| Pattern | Why |
+|---|---|
+| A data migration runs **before** a new constraint is validated (00002 rewrites legacy `k8s:ns/secret#key` references to `secret/key`) | Without it, the new constraint would fail on existing rows. `TestMigrationConvertsLegacySecretRefs` migrates old-shape data forward. |
+| `ADD CONSTRAINT … NOT VALID` then `VALIDATE CONSTRAINT` | Adding a CHECK normally scans the whole table under an exclusive lock that blocks writes. `NOT VALID` applies the rule to new writes immediately, and `VALIDATE` checks old rows under a lock that doesn't block reads or writes. |
+| `CREATE UNIQUE INDEX CONCURRENTLY` in a `-- +goose NO TRANSACTION` migration | Builds the index without blocking writes. It can't run inside a transaction, so the migration holds only that one statement. If it fails partway, PostgreSQL leaves an `INVALID` index behind, which must be dropped before retrying. |
+
+The environment namespace index (`environments_namespace_key`) guarantees that no two projects target the same Kubernetes namespace. Environments of soft-deleted projects keep their namespace reserved, because those Kubernetes resources may still exist.
+
 ## Commands
 
 ```bash
