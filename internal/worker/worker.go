@@ -173,7 +173,7 @@ func (w *Worker) process(base context.Context, job deployments.Job) {
 	image, err := w.exec.Build(buildCtx, job, logLine)
 	cancelBuild()
 	if err != nil {
-		w.fail(base, job, &lost, fmt.Errorf("build: %w", err), logLine, logger)
+		w.fail(base, job, &lost, fmt.Errorf("build: %w", err), logLine, logger) // nothing applied: no rollback
 		return
 	}
 	if err := detached(base, func(ctx context.Context) error { return w.svc.SetImage(ctx, d.ID, image) }); err != nil {
@@ -189,11 +189,19 @@ func (w *Worker) process(base context.Context, job deployments.Job) {
 	}
 	logLine("info", "image "+image+" ready; deploying")
 
+	if d.RollbackOf != nil {
+		logLine("info", fmt.Sprintf("rolling back to deployment %s (commit %s) with its original configuration", *d.RollbackOf, d.CommitSHA))
+	}
 	deployCtx, cancelDeploy := context.WithTimeout(jobCtx, w.cfg.DeployTimeout)
 	err = w.exec.Deploy(deployCtx, job, image, logLine)
 	cancelDeploy()
 	if err != nil {
-		w.fail(base, job, &lost, fmt.Errorf("deploy: %w", err), logLine, logger)
+		// The cluster was changed and the rollout failed: restore the last
+		// good release (if the environment allows it). Not after a user
+		// cancel, a lost lease, or a shutdown: those are not release failures.
+		if w.fail(base, job, &lost, fmt.Errorf("deploy: %w", err), logLine, logger) {
+			w.autoRollback(base, d.ID, logLine, logger)
+		}
 		return
 	}
 	if err := w.complete(base, d.ID, deployments.StatusRunning, ""); err != nil {
@@ -205,8 +213,10 @@ func (w *Worker) process(base context.Context, job deployments.Job) {
 }
 
 // fail records a failure unless the deployment is no longer ours. Database
-// writes use a detached context so they still happen during shutdown.
-func (w *Worker) fail(base context.Context, job deployments.Job, lost *atomic.Bool, cause error, logLine LogFunc, logger *slog.Logger) {
+// writes use a detached context so they still happen during shutdown. It
+// reports whether it recorded a genuine release failure (not a cancel, lost
+// lease or shutdown interruption).
+func (w *Worker) fail(base context.Context, job deployments.Job, lost *atomic.Bool, cause error, logLine LogFunc, logger *slog.Logger) bool {
 	var te *deployments.TransitionError
 	switch {
 	case lost.Load() || errors.As(cause, &te):
@@ -214,16 +224,44 @@ func (w *Worker) fail(base context.Context, job deployments.Job, lost *atomic.Bo
 		// state was already written by whoever ended it. Do not overwrite.
 		logger.Info("deployment ended elsewhere; stopping", "cause", cause)
 		logLine("info", "stopped: the deployment was cancelled or taken over")
-		return
+		return false
 	case base.Err() != nil:
 		cause = errors.New("interrupted: the worker shut down before the deployment finished; retry with a new deployment")
+		logLine("error", cause.Error())
+		_ = w.complete(base, job.Deployment.ID, deployments.StatusFailed, cause.Error())
+		return false
 	}
 	logLine("error", cause.Error())
-	if err := w.complete(base, job.Deployment.ID, deployments.StatusFailed, cause.Error()); err != nil && !errors.As(err, &te) {
-		logger.Error("record failure", "err", err, "cause", cause)
-		return
+	if err := w.complete(base, job.Deployment.ID, deployments.StatusFailed, cause.Error()); err != nil {
+		if !errors.As(err, &te) {
+			logger.Error("record failure", "err", err, "cause", cause)
+		}
+		return false
 	}
 	logger.Warn("deployment failed", "cause", cause)
+	return true
+}
+
+// autoRollback queues a rollback to the last good release and records the
+// outcome in the failed deployment's log. The new deployment is processed
+// like any other (by whichever worker claims it).
+func (w *Worker) autoRollback(base context.Context, failedID string, logLine LogFunc, logger *slog.Logger) {
+	var rb *deployments.Deployment
+	var skipped string
+	err := detached(base, func(ctx context.Context) (err error) {
+		rb, skipped, err = w.svc.AutoRollback(ctx, failedID)
+		return err
+	})
+	switch {
+	case err != nil:
+		logger.Error("auto-rollback failed", "err", err)
+		logLine("error", "auto-rollback could not be queued: "+err.Error())
+	case rb == nil:
+		logLine("warn", "auto-rollback skipped: "+skipped)
+	default:
+		logger.Warn("auto-rollback queued", "rollback_deployment_id", rb.ID, "restores", *rb.RollbackOf)
+		logLine("warn", fmt.Sprintf("auto-rollback queued: deployment %s restores deployment %s (commit %s)", rb.ID, *rb.RollbackOf, rb.CommitSHA))
+	}
 }
 
 // heartbeat renews the lease every LeaseTTL/3 until ctx ends. If the

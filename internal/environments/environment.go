@@ -54,10 +54,12 @@ type Environment struct {
 	Resources Resources `json:"resources"`
 	// Port the app listens on; HealthCheckPath (optional) answers 2xx when
 	// the app is ready. Together they drive the Service and the probes.
-	Port            int       `json:"port"`
-	HealthCheckPath *string   `json:"health_check_path"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	Port            int     `json:"port"`
+	HealthCheckPath *string `json:"health_check_path"`
+	// AutoRollback queues a rollback to the last good release when a rollout fails.
+	AutoRollback bool      `json:"auto_rollback"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // Resources are Kubernetes container requests/limits in quantity syntax.
@@ -199,6 +201,7 @@ type CreateInput struct {
 	Resources       *Resources `json:"resources"`
 	Port            *int       `json:"port"`
 	HealthCheckPath *string    `json:"health_check_path"`
+	AutoRollback    *bool      `json:"auto_rollback"`
 }
 
 func (in *CreateInput) normalize(projectName string) map[string]string {
@@ -223,6 +226,10 @@ func (in *CreateInput) normalize(projectName string) map[string]string {
 		p := 8080
 		in.Port = &p
 	}
+	if in.AutoRollback == nil {
+		on := true
+		in.AutoRollback = &on
+	}
 	validateReplicas(*in.Replicas, errs)
 	in.Resources.validate(errs)
 	validatePort(*in.Port, errs)
@@ -240,12 +247,13 @@ type UpdateInput struct {
 	Port      *int       `json:"port"`
 	// HealthCheckPath: nil leaves it unchanged; "" clears it (TCP probes).
 	HealthCheckPath *string `json:"health_check_path"`
+	AutoRollback    *bool   `json:"auto_rollback"`
 }
 
 func (in UpdateInput) validate() map[string]string {
 	errs := map[string]string{}
-	if in.Replicas == nil && in.Resources == nil && in.Port == nil && in.HealthCheckPath == nil {
-		errs["body"] = "at least one of replicas, resources, port, health_check_path is required"
+	if in.Replicas == nil && in.Resources == nil && in.Port == nil && in.HealthCheckPath == nil && in.AutoRollback == nil {
+		errs["body"] = "at least one of replicas, resources, port, health_check_path, auto_rollback is required"
 		return errs
 	}
 	if in.Port != nil {

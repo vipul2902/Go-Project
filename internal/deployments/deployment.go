@@ -43,6 +43,8 @@ type Deployment struct {
 	StartedAt       *time.Time `json:"started_at"`
 	CompletedAt     *time.Time `json:"completed_at"`
 	DurationSeconds *float64   `json:"duration_seconds"`
+	// Warnings is set only on rollback responses (config differences).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // Trigger identifies who started a deployment (null if the user was deleted).

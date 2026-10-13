@@ -130,11 +130,46 @@ The compose `worker` container uses `WORKER_BUILDER=dryrun`. Giving it real buil
 
 The worker writes each step to `deployment_logs`. Clients read them with `GET /deployments/{id}/logs?after=<last id>`, and each response includes `next_after` and the deployment's current `status`, so a client can tail a running deployment by polling.
 
+## Rollback
+
+A rollback is a **new deployment** with `rollback_of = <target>`. History stays append-only, and the audit trail shows who rolled back what, and why.
+
+| | Behaviour |
+|---|---|
+| **What is restored** | The target's exact **snapshot**: its commit (so its image is reused, not rebuilt), replicas, resources, port, health path and variables, including secret *references*. |
+| **What is not changed** | The environment's own settings. The response lists `warnings` describing how they differ (keys only, never values), because the *next* regular deployment will apply them again. Silently rewriting someone's settings, secret references included, would be the more surprising behaviour. |
+| **Valid targets** | A deployment of the same environment that completed successfully (`RUNNING`) and isn't already the current release (`409 ALREADY_CURRENT`). A failed deployment isn't a valid target (`422 INVALID_ROLLBACK_TARGET`). |
+| **Rules it follows** | The same as a deploy: developer (admin for production), one active deployment per environment, and an optional `Idempotency-Key`. |
+
+Endpoints:
+- `POST /deployments/{id}/rollback` restores deployment `{id}`.
+- `POST /projects/{id}/environments/{env}/rollback` restores **the previous release**: the most recent successful deployment with a different commit from the current one. Returns `409 NO_PREVIOUS_RELEASE` if there isn't one.
+
+### Auto-rollback
+
+When a deployment fails **during rollout** (the cluster was changed and the rollout failed), the worker queues a rollback to the environment's last successful release. It's controlled per environment by `auto_rollback`, which defaults to `true`. Without it, the cluster Deployment would keep pointing at the broken spec: the old pods keep serving, but any restart or node drain would start broken pods.
+
+| It does **not** auto-roll back when... | Because... |
+|---|---|
+| The build failed | Nothing was applied to the cluster |
+| A user cancelled, the lease was lost, or the worker shut down | Those aren't release failures |
+| The failed deployment was itself a rollback | That's how loops start; a human should investigate |
+| There's no earlier successful release | There's nothing to restore |
+| Another deployment became active in the meantime | One active deployment per environment |
+
+Each outcome, whether queued or skipped with its reason, is written to the failed deployment's log. The rollback runs as a system action (`triggered_by: null`) and is audited as `deployment.auto_rollback`.
+
+**Idempotency:** the key is `auto-rollback:<failed deployment id>`, so a retried worker can't queue two rollbacks. A test caught a subtle bug here. The retry recomputed "the latest good release", which by then was *the rollback itself*, so it asked for a different target under the same key and was rejected as a mismatched reuse. The fix is to look up an earlier result for the key **before** recomputing inputs that may have changed since.
+
+Known gap: if the worker crashes between recording the failure and queueing the rollback, no rollback is queued. The deployment is `FAILED`, health shows `failing` with drift, and a manual rollback fixes it.
+
+Verified in the cluster: adding a variable that references a missing Secret caused `CreateContainerConfigError`. The deployment failed fast, the auto-rollback restored the previous snapshot, and health returned to `healthy` with no drift.
+
 ## Audit log
 
 Each audit entry records the actor, organization, action, resource, metadata, client IP, request ID and timestamp. Recorded actions:
 
-`auth.registered`, `auth.login`, `auth.refresh_token_reuse`, `deployment.succeeded` and `deployment.failed` (recorded by the worker, so they have no user actor), `organization.created`, `member.added`, `member.role_changed`, `member.removed`, `project.created`, `project.updated` (with from/to values for each changed field), `project.deleted`, `environment.created`, `environment.updated`, `environment.deleted`, `variable.set`, `variable.deleted`, `deployment.created`, `deployment.cancelled`.
+`auth.registered`, `auth.login`, `auth.refresh_token_reuse`, `deployment.succeeded` and `deployment.failed` (recorded by the worker, so they have no user actor), `deployment.rollback`, `deployment.auto_rollback`, `organization.created`, `member.added`, `member.role_changed`, `member.removed`, `project.created`, `project.updated` (with from/to values for each changed field), `project.deleted`, `environment.created`, `environment.updated`, `environment.deleted`, `variable.set`, `variable.deleted`, `deployment.created`, `deployment.cancelled`.
 
 What is and isn't recorded:
 - Variable **values** are never recorded, not even plain ones; only the key and whether it's a secret.

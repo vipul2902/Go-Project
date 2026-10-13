@@ -37,6 +37,8 @@ func (h *Handler) Routes(mux *http.ServeMux, requireAuth func(http.Handler) http
 	handle("GET /api/v1/deployments/{id}", h.get)
 	handle("POST /api/v1/deployments/{id}/cancel", h.cancel)
 	handle("GET /api/v1/deployments/{id}/logs", h.logs)
+	handle("POST /api/v1/deployments/{id}/rollback", h.rollbackTo)
+	handle("POST /api/v1/projects/{id}/environments/{env}/rollback", h.rollbackPrevious)
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -169,6 +171,98 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, d)
 }
 
+// rollbackTo: POST /deployments/{id}/rollback restores deployment {id}.
+func (h *Handler) rollbackTo(w http.ResponseWriter, r *http.Request) {
+	key, ok := idempotencyKey(w, r)
+	if !ok {
+		return
+	}
+	target, p, role, ok := h.load(w, r)
+	if !ok {
+		return
+	}
+	if !role.Allows(environments.RequiredRole(target.Environment)) {
+		httpx.WriteError(w, r, http.StatusForbidden, httpx.CodeForbidden, "your role does not permit rolling back "+target.Environment)
+		return
+	}
+	env, err := h.environments.Get(r.Context(), p.ID, target.Environment)
+	if err != nil {
+		writeErr(w, r, err)
+		return
+	}
+	h.rollback(w, r, RollbackParams{ActorID: auth.UserIDFrom(r.Context()), Project: p, Environment: env, Target: target, IdempotencyKey: key})
+}
+
+// rollbackPrevious: POST /projects/{id}/environments/{env}/rollback restores
+// the release before the current one.
+func (h *Handler) rollbackPrevious(w http.ResponseWriter, r *http.Request) {
+	key, ok := idempotencyKey(w, r)
+	if !ok {
+		return
+	}
+	id, ok := httpx.PathUUID(w, r, "id")
+	if !ok {
+		return
+	}
+	p, role, err := h.projects.Access(r.Context(), auth.UserIDFrom(r.Context()), id)
+	if err != nil {
+		writeErr(w, r, err)
+		return
+	}
+	name := r.PathValue("env")
+	if !environments.ValidName(name) {
+		httpx.WriteError(w, r, http.StatusNotFound, "ENVIRONMENT_NOT_FOUND", "environment not found")
+		return
+	}
+	if !role.Allows(environments.RequiredRole(name)) {
+		httpx.WriteError(w, r, http.StatusForbidden, httpx.CodeForbidden, "your role does not permit rolling back "+name)
+		return
+	}
+	env, err := h.environments.Get(r.Context(), p.ID, name)
+	if errors.Is(err, environments.ErrNotFound) {
+		httpx.WriteError(w, r, http.StatusNotFound, "ENVIRONMENT_NOT_FOUND", "environment not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteInternalError(w, r, err)
+		return
+	}
+	prev, err := h.svc.PreviousSucceeded(r.Context(), env.ID)
+	if err != nil {
+		httpx.WriteInternalError(w, r, err)
+		return
+	}
+	if prev == nil {
+		writeErr(w, r, ErrNoPreviousRelease)
+		return
+	}
+	h.rollback(w, r, RollbackParams{ActorID: auth.UserIDFrom(r.Context()), Project: p, Environment: env, Target: *prev, IdempotencyKey: key})
+}
+
+func (h *Handler) rollback(w http.ResponseWriter, r *http.Request, p RollbackParams) {
+	d, replayed, err := h.svc.Rollback(r.Context(), p)
+	if err != nil {
+		writeErr(w, r, err)
+		return
+	}
+	w.Header().Set("Location", "/api/v1/deployments/"+d.ID)
+	if replayed {
+		w.Header().Set("Idempotent-Replayed", "true")
+		httpx.WriteJSON(w, http.StatusOK, d)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusAccepted, d)
+}
+
+func idempotencyKey(w http.ResponseWriter, r *http.Request) (string, bool) {
+	key := r.Header.Get(HeaderIdempotencyKey)
+	if key != "" && !ValidIdempotencyKey(key) {
+		httpx.WriteValidationError(w, r, map[string]string{"Idempotency-Key": "must be 1-128 chars of A-Z a-z 0-9 _ . : -"})
+		return "", false
+	}
+	return key, true
+}
+
 // logs returns pipeline log lines after ?after=<id> (default 0), oldest
 // first, up to ?limit (default 200, max 1000). next_after is the id to pass
 // on the next poll.
@@ -292,6 +386,14 @@ func writeErr(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.As(err, &transition):
 		httpx.WriteError(w, r, http.StatusConflict, "INVALID_TRANSITION",
 			"deployment is "+string(transition.From)+" and cannot become "+string(transition.To))
+	case errors.Is(err, ErrRollbackTarget):
+		httpx.WriteError(w, r, http.StatusUnprocessableEntity, "INVALID_ROLLBACK_TARGET", "only a deployment that completed successfully can be restored")
+	case errors.Is(err, ErrAlreadyCurrent):
+		httpx.WriteError(w, r, http.StatusConflict, "ALREADY_CURRENT", "that deployment is already the current release")
+	case errors.Is(err, ErrNoPreviousRelease):
+		httpx.WriteError(w, r, http.StatusConflict, "NO_PREVIOUS_RELEASE", "there is no earlier successful release to roll back to")
+	case errors.Is(err, environments.ErrNotFound):
+		httpx.WriteError(w, r, http.StatusNotFound, "ENVIRONMENT_NOT_FOUND", "environment not found")
 	case errors.Is(err, ErrIdempotencyMismatch):
 		httpx.WriteError(w, r, http.StatusUnprocessableEntity, "IDEMPOTENCY_KEY_REUSED",
 			"this Idempotency-Key was already used for a different deployment request")
