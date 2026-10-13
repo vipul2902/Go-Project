@@ -187,7 +187,7 @@ func (w *Worker) process(base context.Context, job deployments.Job) {
 		w.fail(base, job, &lost, err, logLine, logger)
 		return
 	}
-	logLine("info", "image "+image+" built; deploying")
+	logLine("info", "image "+image+" ready; deploying")
 
 	deployCtx, cancelDeploy := context.WithTimeout(jobCtx, w.cfg.DeployTimeout)
 	err = w.exec.Deploy(deployCtx, job, image, logLine)

@@ -103,8 +103,28 @@ Why not Redis or Kafka for the queue? Both reintroduce the dual-write problem, w
 ### Executors
 
 The worker drives an `Executor` with two methods, `Build` and `Deploy`:
-- **`dryrun`** (current) describes the image it would build and the Kubernetes objects it would apply. Every log line is tagged `[dry-run]`. It must be selected explicitly with `DEPLOY_EXECUTOR=dryrun`; there's no default.
-- **Docker builder** (Phase 9) and **Kubernetes deployer** (Phase 10) will replace it.
+The builder and the deployer are chosen independently with `WORKER_BUILDER` and `WORKER_DEPLOYER`, and neither has a default:
+
+| | `dryrun` | Real implementation |
+|---|---|---|
+| Builder | Describes the image it would build | `docker` (Phase 9): see [Image builds](#image-builds) |
+| Deployer | Describes the Kubernetes objects it would apply. Every line is tagged `[dry-run]`. | Kubernetes (Phase 10) |
+
+### Image builds
+
+The `docker` builder runs these steps, streaming every line of output into the pipeline log (capped at 1,000 lines):
+
+1. **Validate** again: the URL must be `https` with no credentials, and the commit must look like a SHA. This is defense in depth, because the builder passes these values to subprocesses.
+2. **Reuse:** if `clouddeploy/<project>-<projectid8>:<sha>` already exists, skip the build. Redeploys and rollbacks become instant, and a retried build step is idempotent.
+3. **Fetch** with a blobless partial clone (`--filter=blob:none`). This downloads all commits and trees, so a short SHA can be resolved with `rev-parse`, but only the checked-out commit's file contents. Git runs with no hooks, no global or system config, no `file://` transport and no terminal prompts, so private repositories fail fast instead of hanging.
+4. **Pin:** `git checkout --detach <full sha>`. The build is reproducible, unlike building a branch head.
+5. **Limits:** source tree at most 500 MB; a `Dockerfile` must be at the repository root.
+6. **Build** with BuildKit (`docker build --progress=plain`). The image is labelled with `org.opencontainers.image.revision` (the full SHA), `.source`, `dev.clouddeploy.project-id` and `dev.clouddeploy.deployment-id`. No secrets or build arguments are passed.
+7. **Cancel:** interrupting the build sends SIGINT to `docker`, which cancels the BuildKit build in the daemon (verified: no orphaned build processes), with a SIGKILL after 10 seconds.
+
+Images stay in the local Docker daemon, with no registry. Phase 10's local cluster reads them directly; registries (GHCR/ACR) come with CI/CD and Azure.
+
+The compose `worker` container uses `WORKER_BUILDER=dryrun`. Giving it real builds would mean mounting the Docker socket, which is root access to the host. Run `make worker` natively for real builds. The production approach is in [ADR-008](adr/ADR-008-image-builds.md).
 
 ### Pipeline logs
 

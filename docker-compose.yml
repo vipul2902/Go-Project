@@ -103,7 +103,11 @@ services:
       APP_ENV: development
       LOG_LEVEL: info
       DATABASE_URL: postgres://clouddeploy:${POSTGRES_PASSWORD}@postgres:5432/clouddeploy?sslmode=disable
-      DEPLOY_EXECUTOR: dryrun # simulated until Phases 9-10
+      # The container has no git/docker CLI and no Docker socket (mounting the
+      # socket would give it root on the host), so it simulates builds. Run
+      # `make worker` natively for real Docker builds (ADR-008).
+      WORKER_BUILDER: dryrun
+      WORKER_DEPLOYER: dryrun # Kubernetes deployer arrives in Phase 10
       WORKER_CONCURRENCY: "2"
     depends_on:
       migrate:

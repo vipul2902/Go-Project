@@ -2,7 +2,7 @@
 
 A cloud-native deployment platform: register an application, define its environments, build it, deploy it to Kubernetes, and track status, health, logs and history — with Azure infrastructure provisioned by Terraform.
 
-> **Status:** Phase 8 (async deployment worker) complete. Deployments currently use the `dryrun` executor; real image builds come in Phase 9 and Kubernetes rollouts in Phase 10. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
+> **Status:** Phase 9 (Docker image builds) complete. Images are built for real; the deploy step stays `dryrun` until Kubernetes arrives in Phase 10. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
 
 ## Architecture (target)
 
@@ -34,7 +34,7 @@ cp .env.example .env      # then replace every change-me value (openssl rand -he
 make db-up                # Postgres on 127.0.0.1:15432, Redis on 127.0.0.1:16379
 make migrate seed         # schema + dev data
 make dev                  # run the API natively on :8080
-make worker               # in another terminal: the deployment worker (dry-run executor)
+make worker               # in another terminal: the worker (real Docker builds, dry-run deploys)
 curl localhost:8080/readyz
 ```
 
@@ -70,7 +70,9 @@ Worker settings (used by `cmd/worker`):
 
 | Variable | Default | Notes |
 |---|---|---|
-| `DEPLOY_EXECUTOR` | *(required)* | `dryrun` for now. Required on purpose, so nobody mistakes simulated deployments for real ones. |
+| `WORKER_BUILDER` | *(required)* | `docker` builds images with the local git and docker CLIs; `dryrun` simulates the build. Required on purpose, so nobody mistakes simulated builds for real ones. |
+| `WORKER_DEPLOYER` | *(required)* | `dryrun` until the Kubernetes deployer arrives in Phase 10 |
+| `BUILD_WORKDIR` | OS temp dir | Where temporary checkouts are created; each build's directory is deleted afterwards |
 | `WORKER_CONCURRENCY` | `2` | Maximum number of deployments processed in parallel (1–32) |
 | `WORKER_LEASE_TTL` | `30s` | How long a claim survives without heartbeats before the reaper fails it |
 | `WORKER_POLL_INTERVAL` | `5s` | Fallback polling; `NOTIFY` normally wakes the worker immediately |
@@ -108,7 +110,7 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 
 ## Roadmap
 
-0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds · 10 local k8s · 11 Helm · 12 monitoring/logs · 13 rollback · 14 dashboard · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
+0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s · 11 Helm · 12 monitoring/logs · 13 rollback · 14 dashboard · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
 
 ## Documentation
 
