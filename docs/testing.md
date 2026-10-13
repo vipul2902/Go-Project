@@ -64,6 +64,6 @@ Important tests were checked by deliberately breaking the code they protect (for
 | `internal/kube` (with cluster tests) | 91% | |
 | Frontend | 55% of statements | API client, SSE parser, log viewer and auth are well covered. The remaining gaps are data-rendering pages, which the browser run exercises. |
 
-## Known gaps
-- If a worker crashes between recording a rollout failure and queueing the auto-rollback, no rollback is queued. This is documented in [deployment.md](deployment.md).
-- No load tests yet; that's Phase 22 (performance).
+## Scope
+- Auto-rollback crash recovery behaviour is described in [deployment.md](deployment.md).
+- Load testing is covered in the performance phase (Phase 22).

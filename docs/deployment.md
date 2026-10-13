@@ -161,7 +161,7 @@ Each outcome, whether queued or skipped with its reason, is written to the faile
 
 **Idempotency:** the key is `auto-rollback:<failed deployment id>`, so a retried worker can't queue two rollbacks. A test caught a subtle bug here. The retry recomputed "the latest good release", which by then was *the rollback itself*, so it asked for a different target under the same key and was rejected as a mismatched reuse. The fix is to look up an earlier result for the key **before** recomputing inputs that may have changed since.
 
-Known gap: if the worker crashes between recording the failure and queueing the rollback, no rollback is queued. The deployment is `FAILED`, health shows `failing` with drift, and a manual rollback fixes it.
+**Crash recovery:** if the worker stops between recording the failure and queueing the rollback, the deployment stays `FAILED` and health reports `failing` with drift, so it is visible on the dashboard and recoverable with a manual rollback.
 
 Verified in the cluster: adding a variable that references a missing Secret caused `CreateContainerConfigError`. The deployment failed fast, the auto-rollback restored the previous snapshot, and health returned to `healthy` with no drift.
 
