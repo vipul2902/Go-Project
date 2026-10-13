@@ -24,7 +24,7 @@ func NewHandler(svc *Service, projectSvc *projects.Service) *Handler {
 const base = "/api/v1/projects/{id}/environments"
 
 // Routes registers endpoints; all require authentication.
-func (h *Handler) Routes(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
+func (h *Handler) Routes(mux httpx.Router, requireAuth func(http.Handler) http.Handler) {
 	handle := func(pattern string, fn http.HandlerFunc) { mux.Handle(pattern, requireAuth(fn)) }
 	handle("GET "+base, h.list)
 	handle("POST "+base, h.create)

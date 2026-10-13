@@ -37,7 +37,7 @@ func NewHandler(p *projects.Service, e *environments.Service, d *deployments.Ser
 const base = "/api/v1/projects/{id}/environments/{env}"
 
 // Routes registers endpoints; all require authentication.
-func (h *Handler) Routes(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
+func (h *Handler) Routes(mux httpx.Router, requireAuth func(http.Handler) http.Handler) {
 	mux.Handle("GET "+base+"/health", requireAuth(http.HandlerFunc(h.health)))
 	mux.Handle("GET "+base+"/logs", requireAuth(http.HandlerFunc(h.logs)))
 }

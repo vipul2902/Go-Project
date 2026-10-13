@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -22,7 +23,9 @@ const MaxStreamDuration = 10 * time.Minute
 // caller must bound the stream itself (MaxStreamDuration).
 func StartSSE(w http.ResponseWriter) (*SSE, error) {
 	rc := http.NewResponseController(w)
-	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
+	// Writers that cannot change deadlines (some wrappers, test recorders)
+	// still stream; the server's WriteTimeout then bounds the stream.
+	if err := rc.SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		return nil, fmt.Errorf("disable write deadline: %w", err)
 	}
 	h := w.Header()

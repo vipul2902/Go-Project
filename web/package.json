@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.2",
@@ -27,6 +28,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "@vitest/coverage-v8": "^5.0.4",
     "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.13.0",

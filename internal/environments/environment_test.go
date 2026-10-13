@@ -28,7 +28,7 @@ func TestParseMemory(t *testing.T) {
 			t.Errorf("ParseMemory(%q) = %d, %v; want %d", q, got, err, want)
 		}
 	}
-	for _, q := range []string{"", "1Mi", "9Gi", "1Ti", "1.5Gi", "lots", "64mi"} {
+	for _, q := range []string{"", "1Mi", "9Gi", "1Ti", "1.5Gi", "lots", "64mi", "100000K"} {
 		if _, err := ParseMemory(q); err == nil {
 			t.Errorf("ParseMemory(%q) accepted", q)
 		}

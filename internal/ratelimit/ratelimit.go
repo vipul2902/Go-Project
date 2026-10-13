@@ -30,6 +30,18 @@ type Rule struct {
 	Period time.Duration
 }
 
+// Validate reports whether the rule can be enforced: at least one request,
+// and an emission interval (Period/Limit) of at least one microsecond.
+func (r Rule) Validate() error {
+	if r.Name == "" || r.Limit < 1 || r.Period <= 0 {
+		return fmt.Errorf("rate limit rule %q: name, limit >= 1 and period > 0 are required", r.Name)
+	}
+	if r.Period.Microseconds()/int64(r.Limit) < 1 {
+		return fmt.Errorf("rate limit rule %q: %d per %s is finer than 1µs per request", r.Name, r.Limit, r.Period)
+	}
+	return nil
+}
+
 // Result of one rate-limit check.
 type Result struct {
 	Allowed    bool
@@ -61,7 +73,10 @@ func (l *Limiter) Allow(ctx context.Context, rule Rule, key string) (Result, err
 	if l == nil || l.rdb == nil {
 		return Result{Allowed: true, Limit: rule.Limit, Remaining: rule.Limit}, nil
 	}
-	interval := rule.Period.Milliseconds() / int64(rule.Limit)
+	if err := rule.Validate(); err != nil {
+		return Result{}, err
+	}
+	interval := rule.Period.Microseconds() / int64(rule.Limit)
 	res, err := gcra.Run(ctx, l.rdb, []string{"rl:" + rule.Name + ":" + key}, interval, rule.Limit).Int64Slice()
 	if err != nil {
 		return Result{}, fmt.Errorf("rate limit %s: %w", rule.Name, err)

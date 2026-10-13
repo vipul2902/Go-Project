@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"strings"
 	"sync"
@@ -574,4 +575,52 @@ func TestDashboardSummary(t *testing.T) {
 	if res := f.api.Do(http.MethodGet, "/api/v1/dashboard", f.outside.Token, nil); res.Body["projects"].(float64) != 0 || len(res.Body["recent_deployments"].([]any)) != 0 {
 		t.Errorf("outsider summary: %v", res.Body)
 	}
+}
+
+// Model-based test: apply random transitions to real deployments in
+// Postgres and check, after every step, that the database agrees with the
+// Go state machine model and that the lifecycle invariants hold.
+func TestStateMachineModelAgainstDatabase(t *testing.T) {
+	f := setup(t)
+	svc := deployments.NewService(f.api.Pool)
+	all := []deployments.Status{deployments.StatusQueued, deployments.StatusBuilding, deployments.StatusDeploying,
+		deployments.StatusRunning, deployments.StatusFailed, deployments.StatusCancelled}
+	rng := rand.New(rand.NewPCG(42, 2026)) // deterministic: failures are reproducible
+
+	steps := 0
+	for run := range 25 {
+		id := f.deploy(f.dev.Token, "development", fmt.Sprintf("%07x", run+1)).Str("id")
+		model := deployments.StatusQueued
+		for range 8 {
+			to := all[rng.IntN(len(all))]
+			d, err := svc.Transition(t.Context(), id, to, "")
+			steps++
+			if want := deployments.CanTransition(model, to); want != (err == nil) {
+				t.Fatalf("run %d: %s -> %s: model allows=%v, database err=%v", run, model, to, want, err)
+			}
+			if err == nil {
+				model = to
+				if d.Status != to {
+					t.Fatalf("returned status %s, want %s", d.Status, to)
+				}
+			}
+			got, _ := svc.Get(t.Context(), id)
+			switch {
+			case got.Status != model:
+				t.Fatalf("database status %s, model %s", got.Status, model)
+			case model.Terminal() != (got.CompletedAt != nil):
+				t.Fatalf("%s: completed_at=%v violates terminal <=> completed", model, got.CompletedAt)
+			case got.StartedAt != nil && got.CompletedAt != nil && got.CompletedAt.Before(*got.StartedAt):
+				t.Fatalf("completed before started")
+			case model != deployments.StatusQueued && model != deployments.StatusCancelled && model != deployments.StatusFailed && got.StartedAt == nil:
+				t.Fatalf("%s without started_at", model)
+			}
+		}
+		if model.Active() { // free the environment for the next run
+			if _, err := svc.Transition(t.Context(), id, deployments.StatusCancelled, ""); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	t.Logf("%d random transitions checked against the model", steps)
 }

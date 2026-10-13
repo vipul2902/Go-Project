@@ -98,7 +98,7 @@ Base path: `/projects/{id}/environments`. `{env}` is `development`, `staging` or
 `port` (1–65535, default 8080) is the port the app listens on. `health_check_path` (optional, for example `/healthz`) must answer 2xx when the app is ready; without it, readiness checks the TCP port. In a `PATCH`, `"health_check_path": ""` clears it.
 
 `resources` uses Kubernetes quantities: `{"cpu_request":"100m","cpu_limit":"500m","memory_request":"64Mi","memory_limit":"256Mi"}`.
-- CPU must be between 10m and 4000m, and memory between 16Mi and 8Gi.
+- CPU must be between 10m and 4000m, and memory between 16Mi and 8Gi. Memory suffixes are `k`, `M` and `G` (decimal; note the lowercase `k`) or `Ki`, `Mi` and `Gi` (binary).
 - Each request must not exceed its limit.
 
 The namespace must be a DNS-1123 label, must be unique across the whole platform, and must not be `default`, `clouddeploy` or start with `kube-`.
@@ -116,6 +116,7 @@ Base path: `/projects/{id}/environments/{env}/variables`.
 Rules for variables:
 - Keys are `UPPER_SNAKE_CASE`. The `CLOUDDEPLOY_` and `KUBERNETES_` prefixes are reserved.
 - Values are limited to 32 KiB, and an environment can hold at most 100 variables.
+- `secret_ref` must name a valid Kubernetes Secret (DNS-1123 subdomain) and key; this is checked with Kubernetes' own validators.
 - Keys that look like credentials (`*PASSWORD*`, `*SECRET*`, `*TOKEN*`, `*API_KEY*`, `*PRIVATE_KEY*`, `*CREDENTIAL*`, `*ACCESS_KEY*`) **must** use `secret_ref`.
 
 ## Dashboard
