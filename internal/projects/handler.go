@@ -153,6 +153,8 @@ func writeErr(w http.ResponseWriter, r *http.Request, err error) {
 		httpx.WriteError(w, r, http.StatusForbidden, httpx.CodeForbidden, "your role does not permit this action")
 	case errors.Is(err, ErrNameTaken):
 		httpx.WriteError(w, r, http.StatusConflict, "PROJECT_NAME_TAKEN", "a project with this name already exists in the organization")
+	case errors.Is(err, ErrActiveDeployment):
+		httpx.WriteError(w, r, http.StatusConflict, "DEPLOYMENT_IN_PROGRESS", "cancel or wait for the active deployment before deleting the project")
 	case errors.Is(err, ErrPreconditionFailed):
 		httpx.WriteError(w, r, http.StatusPreconditionFailed, "PRECONDITION_FAILED", "project was modified since you read it; reload and retry")
 	default:

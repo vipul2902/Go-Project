@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/vipul2902/clouddeploy/internal/audit"
 	"github.com/vipul2902/clouddeploy/internal/auth"
 	"github.com/vipul2902/clouddeploy/internal/httpx"
 	"github.com/vipul2902/clouddeploy/internal/projects"
@@ -66,26 +67,32 @@ func allow(w http.ResponseWriter, r *http.Request, have, need auth.Role) bool {
 }
 
 // environment resolves {id} and {env}, checks the caller has `need` (a
-// function of the environment name), and loads the environment.
-func (h *Handler) environment(w http.ResponseWriter, r *http.Request, need func(string) auth.Role) (Environment, bool) {
+// function of the environment name), and loads the environment. It also
+// returns the audit actor (caller + organization) for mutations.
+func (h *Handler) environment(w http.ResponseWriter, r *http.Request, need func(string) auth.Role) (Environment, audit.Actor, bool) {
 	p, role, ok := h.project(w, r)
 	if !ok {
-		return Environment{}, false
+		return Environment{}, audit.Actor{}, false
 	}
 	name := r.PathValue("env")
 	if !ValidName(name) {
 		writeErr(w, r, ErrNotFound)
-		return Environment{}, false
+		return Environment{}, audit.Actor{}, false
 	}
 	if !allow(w, r, role, need(name)) {
-		return Environment{}, false
+		return Environment{}, audit.Actor{}, false
 	}
 	e, err := h.svc.Get(r.Context(), p.ID, name)
 	if err != nil {
 		writeErr(w, r, err)
-		return Environment{}, false
+		return Environment{}, audit.Actor{}, false
 	}
-	return e, true
+	return e, actorFor(r, p), true
+}
+
+// actorFor builds the audit actor for the caller acting within p's organization.
+func actorFor(r *http.Request, p projects.Project) audit.Actor {
+	return audit.Actor{UserID: auth.UserIDFrom(r.Context()), OrganizationID: p.OrganizationID}
 }
 
 func viewer(string) auth.Role { return auth.RoleViewer }
@@ -119,7 +126,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, role, RequiredRole(in.Name)) {
 		return
 	}
-	e, err := h.svc.Create(r.Context(), p.ID, in)
+	e, err := h.svc.Create(r.Context(), actorFor(r, p), p.ID, in)
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -129,13 +136,13 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
-	if e, ok := h.environment(w, r, viewer); ok {
+	if e, _, ok := h.environment(w, r, viewer); ok {
 		httpx.WriteJSON(w, http.StatusOK, e)
 	}
 }
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
-	e, ok := h.environment(w, r, RequiredRole)
+	e, actor, ok := h.environment(w, r, RequiredRole)
 	if !ok {
 		return
 	}
@@ -147,7 +154,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteValidationError(w, r, errs)
 		return
 	}
-	updated, err := h.svc.Update(r.Context(), e.ProjectID, e.Name, in)
+	updated, err := h.svc.Update(r.Context(), actor, e.ProjectID, e.Name, in)
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -156,11 +163,11 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
-	e, ok := h.environment(w, r, func(string) auth.Role { return auth.RoleAdmin })
+	e, actor, ok := h.environment(w, r, func(string) auth.Role { return auth.RoleAdmin })
 	if !ok {
 		return
 	}
-	if err := h.svc.Delete(r.Context(), e.ProjectID, e.Name); err != nil {
+	if err := h.svc.Delete(r.Context(), actor, e.ProjectID, e.Name); err != nil {
 		writeErr(w, r, err)
 		return
 	}
@@ -168,7 +175,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listVariables(w http.ResponseWriter, r *http.Request) {
-	e, ok := h.environment(w, r, viewer)
+	e, _, ok := h.environment(w, r, viewer)
 	if !ok {
 		return
 	}
@@ -181,7 +188,7 @@ func (h *Handler) listVariables(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) setVariable(w http.ResponseWriter, r *http.Request) {
-	e, ok := h.environment(w, r, RequiredRole)
+	e, actor, ok := h.environment(w, r, RequiredRole)
 	if !ok {
 		return
 	}
@@ -194,7 +201,7 @@ func (h *Handler) setVariable(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteValidationError(w, r, errs)
 		return
 	}
-	v, created, err := h.svc.SetVariable(r.Context(), e.ID, key, in)
+	v, created, err := h.svc.SetVariable(r.Context(), actor, e, key, in)
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -207,11 +214,11 @@ func (h *Handler) setVariable(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteVariable(w http.ResponseWriter, r *http.Request) {
-	e, ok := h.environment(w, r, RequiredRole)
+	e, actor, ok := h.environment(w, r, RequiredRole)
 	if !ok {
 		return
 	}
-	if err := h.svc.DeleteVariable(r.Context(), e.ID, r.PathValue("key")); err != nil {
+	if err := h.svc.DeleteVariable(r.Context(), actor, e, r.PathValue("key")); err != nil {
 		writeErr(w, r, err)
 		return
 	}

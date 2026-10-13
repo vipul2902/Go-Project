@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vipul2902/clouddeploy/internal/audit"
 	"github.com/vipul2902/clouddeploy/internal/slug"
 )
 
@@ -139,6 +140,10 @@ func (s *Service) Login(ctx context.Context, email, password string) (User, Toke
 	}
 	if !ok {
 		return User{}, TokenPair{}, ErrInvalidCredentials
+	}
+	// Logins are platform-level events (no organization).
+	if err := audit.Record(ctx, s.store.pool, audit.Actor{UserID: u.ID}, "auth.login", "user", u.ID, nil); err != nil {
+		return User{}, TokenPair{}, err
 	}
 	pair, err := s.issuePair(ctx, u.ID)
 	return u, pair, err

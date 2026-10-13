@@ -7,6 +7,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/vipul2902/clouddeploy/internal/audit"
 )
 
 // Service implements environment and variable storage. Authorization is
@@ -48,16 +50,24 @@ func (s *Service) Get(ctx context.Context, projectID, name string) (Environment,
 }
 
 // Create adds an environment; input must already be normalized.
-func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) (Environment, error) {
-	r := in.Resources
-	rows, err := s.pool.Query(ctx, `
-		INSERT INTO environments (project_id, name, namespace, replicas, cpu_request, cpu_limit, memory_request, memory_limit)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING `+envColumns,
-		projectID, in.Name, in.Namespace, *in.Replicas, r.CPURequest, r.CPULimit, r.MemoryRequest, r.MemoryLimit)
-	if err != nil {
-		return Environment{}, err
-	}
-	e, err := one(rows, ErrNotFound)
+func (s *Service) Create(ctx context.Context, actor audit.Actor, projectID string, in CreateInput) (Environment, error) {
+	var e Environment
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		r := in.Resources
+		rows, err := tx.Query(ctx, `
+			INSERT INTO environments (project_id, name, namespace, replicas, cpu_request, cpu_limit, memory_request, memory_limit)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING `+envColumns,
+			projectID, in.Name, in.Namespace, *in.Replicas, r.CPURequest, r.CPULimit, r.MemoryRequest, r.MemoryLimit)
+		if err != nil {
+			return err
+		}
+		if e, err = one(rows, ErrNotFound); err != nil {
+			return err
+		}
+		return audit.Record(ctx, tx, actor, "environment.created", "environment", e.ID, map[string]any{
+			"project_id": projectID, "environment": e.Name, "namespace": e.Namespace, "replicas": e.Replicas, "resources": e.Resources,
+		})
+	})
 	switch {
 	case pgErrIs(err, "23505", "environments_project_id_name_key"):
 		return Environment{}, ErrExists
@@ -68,40 +78,54 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 }
 
 // Update applies a validated partial update.
-func (s *Service) Update(ctx context.Context, projectID, name string, in UpdateInput) (Environment, error) {
+func (s *Service) Update(ctx context.Context, actor audit.Actor, projectID, name string, in UpdateInput) (Environment, error) {
 	var cpuReq, cpuLim, memReq, memLim *string
 	if r := in.Resources; r != nil {
 		cpuReq, cpuLim, memReq, memLim = &r.CPURequest, &r.CPULimit, &r.MemoryRequest, &r.MemoryLimit
 	}
-	rows, err := s.pool.Query(ctx, `
-		UPDATE environments SET
-			replicas       = COALESCE($3, replicas),
-			cpu_request    = COALESCE($4, cpu_request),
-			cpu_limit      = COALESCE($5, cpu_limit),
-			memory_request = COALESCE($6, memory_request),
-			memory_limit   = COALESCE($7, memory_limit)
-		WHERE project_id = $1 AND name = $2 RETURNING `+envColumns,
-		projectID, name, in.Replicas, cpuReq, cpuLim, memReq, memLim)
-	if err != nil {
-		return Environment{}, err
-	}
-	return one(rows, ErrNotFound)
+	var e Environment
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			UPDATE environments SET
+				replicas       = COALESCE($3, replicas),
+				cpu_request    = COALESCE($4, cpu_request),
+				cpu_limit      = COALESCE($5, cpu_limit),
+				memory_request = COALESCE($6, memory_request),
+				memory_limit   = COALESCE($7, memory_limit)
+			WHERE project_id = $1 AND name = $2 RETURNING `+envColumns,
+			projectID, name, in.Replicas, cpuReq, cpuLim, memReq, memLim)
+		if err != nil {
+			return err
+		}
+		if e, err = one(rows, ErrNotFound); err != nil {
+			return err
+		}
+		return audit.Record(ctx, tx, actor, "environment.updated", "environment", e.ID, map[string]any{
+			"project_id": projectID, "environment": e.Name, "replicas": e.Replicas, "resources": e.Resources,
+		})
+	})
+	return e, err
 }
 
 // Delete removes an environment and its variables. Environments with
 // deployment history cannot be deleted (the FK protects the history).
-func (s *Service) Delete(ctx context.Context, projectID, name string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM environments WHERE project_id = $1 AND name = $2`, projectID, name)
+func (s *Service) Delete(ctx context.Context, actor audit.Actor, projectID, name string) error {
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var id string
+		err := tx.QueryRow(ctx, `DELETE FROM environments WHERE project_id = $1 AND name = $2 RETURNING id`, projectID, name).Scan(&id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		return audit.Record(ctx, tx, actor, "environment.deleted", "environment", id,
+			map[string]any{"project_id": projectID, "environment": name})
+	})
 	if pgErrIs(err, "23503", "") {
 		return ErrHasDeployments
 	}
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return err
 }
 
 // Variables lists an environment's variables by key.
@@ -118,16 +142,16 @@ func (s *Service) Variables(ctx context.Context, envID string) ([]Variable, erro
 // SetVariable creates or replaces a variable (input must be validated) and
 // reports whether it was newly created. The environment row is locked so
 // the per-environment variable cap cannot be exceeded by concurrent writes.
-func (s *Service) SetVariable(ctx context.Context, envID, key string, in VariableInput) (Variable, bool, error) {
+func (s *Service) SetVariable(ctx context.Context, actor audit.Actor, env Environment, key string, in VariableInput) (Variable, bool, error) {
 	var v Variable
 	var created bool
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SELECT 1 FROM environments WHERE id = $1 FOR UPDATE`, envID); err != nil {
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM environments WHERE id = $1 FOR UPDATE`, env.ID); err != nil {
 			return err
 		}
 		var others int
 		if err := tx.QueryRow(ctx,
-			`SELECT count(*) FROM environment_variables WHERE environment_id = $1 AND key <> $2`, envID, key).Scan(&others); err != nil {
+			`SELECT count(*) FROM environment_variables WHERE environment_id = $1 AND key <> $2`, env.ID, key).Scan(&others); err != nil {
 			return err
 		}
 		if others >= MaxVariablesPerEnv {
@@ -136,28 +160,36 @@ func (s *Service) SetVariable(ctx context.Context, envID, key string, in Variabl
 		// xmax = 0 is true only for a freshly inserted row (an updated row
 		// version carries the updating transaction's ID): insert vs update
 		// in one statement.
-		return tx.QueryRow(ctx, `
+		if err := tx.QueryRow(ctx, `
 			INSERT INTO environment_variables (environment_id, key, value, is_secret, secret_ref)
 			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (environment_id, key) DO UPDATE
 			SET value = EXCLUDED.value, is_secret = EXCLUDED.is_secret, secret_ref = EXCLUDED.secret_ref
 			RETURNING key, value, is_secret, secret_ref, updated_at, (xmax = 0)`,
-			envID, key, in.Value, in.SecretRef != nil, in.SecretRef).
-			Scan(&v.Key, &v.Value, &v.Secret, &v.SecretRef, &v.UpdatedAt, &created)
+			env.ID, key, in.Value, in.SecretRef != nil, in.SecretRef).
+			Scan(&v.Key, &v.Value, &v.Secret, &v.SecretRef, &v.UpdatedAt, &created); err != nil {
+			return err
+		}
+		// Values are never written to the audit log, even plain ones.
+		return audit.Record(ctx, tx, actor, "variable.set", "environment", env.ID,
+			map[string]any{"environment": env.Name, "key": key, "secret": v.Secret, "created": created})
 	})
 	return v, created, err
 }
 
 // DeleteVariable removes a variable.
-func (s *Service) DeleteVariable(ctx context.Context, envID, key string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM environment_variables WHERE environment_id = $1 AND key = $2`, envID, key)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrVariableNotFound
-	}
-	return nil
+func (s *Service) DeleteVariable(ctx context.Context, actor audit.Actor, env Environment, key string) error {
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `DELETE FROM environment_variables WHERE environment_id = $1 AND key = $2`, env.ID, key)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrVariableNotFound
+		}
+		return audit.Record(ctx, tx, actor, "variable.deleted", "environment", env.ID,
+			map[string]any{"environment": env.Name, "key": key})
+	})
 }
 
 func scanVar(r pgx.CollectableRow) (Variable, error) {

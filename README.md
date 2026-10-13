@@ -2,7 +2,7 @@
 
 A cloud-native deployment platform: register an application, define its environments, build it, deploy it to Kubernetes, and track status, health, logs and history — with Azure infrastructure provisioned by Terraform.
 
-> **Status:** Phase 5 (environments & configuration) complete. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
+> **Status:** Phase 6 (deployment domain, state machine, idempotency, audit log) complete. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
 
 ## Architecture (target)
 
@@ -74,6 +74,8 @@ All configuration comes from environment variables (see [.env.example](.env.exam
 | `/api/v1/organizations/*` | Organizations and member management (RBAC) |
 | `/api/v1/projects/*` | Project CRUD with cursor pagination and ETag concurrency control |
 | `/api/v1/projects/{id}/environments/*` | Environments (replicas, resources, namespace) and variables. Secrets are stored as references only. |
+| `/api/v1/deployments/*` | Create (idempotent and asynchronous), list, get and cancel deployments |
+| `/api/v1/organizations/{id}/audit` | Audit trail (admin only) |
 
 The full reference is in [docs/api.md](docs/api.md).
 
@@ -94,12 +96,13 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 
 ## Roadmap
 
-0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain · 7 Redis · 8 async worker · 9 image builds · 10 local k8s · 11 Helm · 12 monitoring/logs · 13 rollback · 14 dashboard · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
+0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis · 8 async worker · 9 image builds · 10 local k8s · 11 Helm · 12 monitoring/logs · 13 rollback · 14 dashboard · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
 
 ## Documentation
 
 - [API reference](docs/api.md)
 - [Architecture decisions](docs/adr/)
 - [Local development](docs/local-development.md)
+- [Deployment domain: state machine, idempotency, audit](docs/deployment.md)
 - [Database design, ERD and indexes](docs/database.md)
 - [Security: authentication, tokens and RBAC](docs/security.md)

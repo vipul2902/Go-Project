@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/vipul2902/clouddeploy/internal/audit"
 	"github.com/vipul2902/clouddeploy/internal/auth"
+	"github.com/vipul2902/clouddeploy/internal/deployments"
 	"github.com/vipul2902/clouddeploy/internal/environments"
 	"github.com/vipul2902/clouddeploy/internal/httpx"
 	"github.com/vipul2902/clouddeploy/internal/middleware"
@@ -28,6 +30,7 @@ type Deps struct {
 	Organizations *organizations.Handler
 	Projects      *projects.Handler
 	Environments  *environments.Handler
+	Deployments   *deployments.Handler
 }
 
 // NewRouter builds the root handler with all routes and middleware.
@@ -47,6 +50,9 @@ func NewRouter(d Deps) http.Handler {
 		if d.Environments != nil {
 			d.Environments.Routes(mux, d.Auth.RequireAuth)
 		}
+		if d.Deployments != nil {
+			d.Deployments.Routes(mux, d.Auth.RequireAuth)
+		}
 	}
 
 	// Catch-all so unknown routes get the standard error envelope.
@@ -56,6 +62,7 @@ func NewRouter(d Deps) http.Handler {
 
 	return middleware.Chain(mux,
 		middleware.RequestID,
+		audit.ClientIP,
 		middleware.Logger(d.Logger),
 		middleware.Recover(d.Logger, func(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, r, http.StatusInternalServerError, httpx.CodeInternal, "internal server error")

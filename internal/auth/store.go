@@ -9,6 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/vipul2902/clouddeploy/internal/audit"
 )
 
 var errNotFound = errors.New("not found")
@@ -32,10 +34,13 @@ func (s store) createUserWithOrg(ctx context.Context, email, name, hash, orgName
 			orgName, slug).Scan(&orgID); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx,
+		if _, err := tx.Exec(ctx,
 			`INSERT INTO organization_members (organization_id, user_id, role) VALUES ($1, $2, 'admin')`,
-			orgID, u.ID)
-		return err
+			orgID, u.ID); err != nil {
+			return err
+		}
+		return audit.Record(ctx, tx, audit.Actor{UserID: u.ID, OrganizationID: orgID},
+			"auth.registered", "user", u.ID, map[string]any{"email": email})
 	})
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "users_email_key" {
@@ -133,6 +138,11 @@ func (s store) rotateRefreshToken(ctx context.Context, oldHash, newHash []byte, 
 		// revocation before reporting the error.
 		if _, err := tx.Exec(ctx,
 			`UPDATE refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND revoked_at IS NULL`, familyID); err != nil {
+			return "", err
+		}
+		// Security event: record it in the same transaction as the revocation.
+		if err := audit.Record(ctx, tx, audit.Actor{UserID: userID}, "auth.refresh_token_reuse", "user", userID,
+			map[string]any{"family_id": familyID}); err != nil {
 			return "", err
 		}
 		if err := tx.Commit(ctx); err != nil {
