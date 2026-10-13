@@ -1,0 +1,12 @@
+CloudDeploy {{ .Values.image.tag | default .Chart.AppVersion }} installed in namespace {{ .Release.Namespace }} ({{ .Values.config.appEnv }}).
+
+API service: {{ include "clouddeploy.fullname" . }}-api:{{ .Values.api.service.port }}
+{{- if .Values.ingress.enabled }}
+Ingress:     https://{{ .Values.ingress.host }}
+{{- else }}
+Local access: kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "clouddeploy.fullname" . }}-api 8080:{{ .Values.api.service.port }}
+{{- end }}
+Worker: builder={{ .Values.worker.builder }} deployer={{ .Values.worker.deployer }}
+{{- if .Values.dev.dockerSocket.enabled }}
+WARNING: the worker mounts the node's Docker socket (development only).
+{{- end }}

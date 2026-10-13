@@ -1,0 +1,14 @@
+# Staging mirrors production topology at smaller scale.
+config:
+  appEnv: staging
+  trustedProxyCIDRs: "10.0.0.0/8"
+api:
+  replicas: 2
+worker:
+  replicas: 1
+ingress:
+  enabled: true
+  className: nginx
+  host: staging.clouddeploy.example.com
+networkPolicy:
+  enabled: true

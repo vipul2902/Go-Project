@@ -1,0 +1,7 @@
+apiVersion: v2
+name: clouddeploy
+description: CloudDeploy platform (API, deployment worker, database migrations)
+type: application
+version: 0.1.0      # chart version: bump on any chart change
+appVersion: "0.1.0" # default image tag when image.tag is empty
+kubeVersion: ">=1.30.0-0"  # preStop sleep action

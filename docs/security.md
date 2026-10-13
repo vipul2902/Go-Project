@@ -90,7 +90,12 @@ Details are in [kubernetes.md](kubernetes.md):
 - Containers drop all capabilities, can't escalate privileges, run under seccomp `RuntimeDefault`, and **don't mount service-account tokens**.
 - Secrets are resolved by the kubelet from `secretKeyRef`, so values never pass through CloudDeploy, its database or its logs.
 - The deployer refuses namespaces it doesn't manage, and the worker requires an explicit `KUBE_CONTEXT`.
+- CloudDeploy's own pods (from the Helm chart) meet the restricted profile. The API has no service-account token. The worker's ClusterRole can't read Secrets, exec into pods or change RBAC.
 - Container output copied into the pipeline log (from crash loops) is sanitized like build output.
+
+## Client IP and trusted proxies
+
+The client IP drives per-IP rate limits and audit records. By default it's the **TCP peer**. When `TRUSTED_PROXY_CIDRS` lists the ingress controller's addresses and the peer is one of them, the API reads `X-Forwarded-For` **from the right**, taking the first address that isn't a trusted proxy. Everything further left was supplied by the client and can be forged; trusting the leftmost entry would let anyone choose their IP and bypass rate limits. If the chain is malformed, the API falls back to the peer. Unit tests cover spoofing, proxy chains and malformed headers.
 
 ## Request handling
 

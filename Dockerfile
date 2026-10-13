@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# ---- build stage: compile a static Go binary ----
+# ---- build stage: compile static Go binaries ----
 FROM golang:1.27-alpine AS builder
 WORKDIR /src
 
@@ -10,19 +10,26 @@ RUN go mod download
 
 COPY . .
 ARG VERSION=dev
-# CGO disabled -> fully static binary that runs on distroless/static.
+# CGO disabled -> fully static binaries that run on distroless/static.
 # -trimpath and -buildvcs=false make builds reproducible across machines.
-RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false \
-    -ldflags="-s -w -X main.version=${VERSION}" \
-    -o /out/api ./cmd/api && \
-    CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -X main.version=${VERSION}" \
-    -o /out/worker ./cmd/worker && \
-    CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" \
-    -o /out/migrate ./cmd/migrate
+RUN for cmd in api worker migrate seed; do \
+      CGO_ENABLED=0 go build -trimpath -buildvcs=false \
+        -ldflags="-s -w -X main.version=${VERSION}" -o /out/$cmd ./cmd/$cmd || exit 1; \
+    done
 
-# ---- runtime stage: no shell, no package manager, non-root ----
-FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=builder /out/api /out/worker /out/migrate /
+# ---- worker-builder: DEVELOPMENT ONLY ----
+# The worker with git + docker CLIs, for an in-cluster worker that builds
+# images through the node's Docker socket. Socket access is root-equivalent
+# on the node, so this image runs as root and must never be used in
+# production (the Helm chart refuses it there). See ADR-008.
+FROM alpine:3.22 AS worker-builder
+RUN apk add --no-cache git docker-cli docker-cli-buildx ca-certificates
+COPY --from=builder /out/worker /worker
+ENTRYPOINT ["/worker"]
+
+# ---- runtime (default): no shell, no package manager, non-root ----
+FROM gcr.io/distroless/static-debian12:nonroot AS runtime
+COPY --from=builder /out/api /out/worker /out/migrate /out/seed /
 USER nonroot:nonroot
 EXPOSE 8080
 # No HEALTHCHECK: distroless has no shell/curl. Health is probed by

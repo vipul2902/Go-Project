@@ -5,12 +5,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
 	"regexp"
 	"runtime/debug"
+	"strings"
 	"time"
 )
 
@@ -148,21 +150,79 @@ func Chain(h http.Handler, mws ...func(http.Handler) http.Handler) http.Handler 
 
 type ipKey struct{}
 
-// ClientIP stores the caller's IP in the request context. It uses the TCP
-// peer address; X-Forwarded-For is deliberately ignored until a trusted
-// proxy is configured (Phase 10/11), because any client can forge that
-// header — and rate limiting by a forgeable value is no rate limiting.
-func ClientIP(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
+// ClientIP stores the caller's IP in the request context.
+//
+// By default it is the TCP peer address. Only when the peer is a trusted
+// proxy (e.g. the ingress controller, listed in trusted) is X-Forwarded-For
+// consulted, and then the client is the RIGHTMOST address that is not
+// itself a trusted proxy: everything to the left of that was supplied by the
+// client and can be forged. Taking the leftmost entry is a classic bug that
+// lets anyone spoof their IP and dodge per-IP rate limits.
+func ClientIP(trusted []netip.Prefix) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if ip, ok := clientIP(r, trusted); ok {
+				r = r.WithContext(context.WithValue(r.Context(), ipKey{}, ip))
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func clientIP(r *http.Request, trusted []netip.Prefix) (netip.Addr, bool) {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	peer, err := netip.ParseAddr(host)
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	peer = peer.Unmap()
+	if !isTrusted(peer, trusted) {
+		return peer, true
+	}
+	// Walk X-Forwarded-For right to left (nearest hop first).
+	var hops []string
+	for _, h := range r.Header.Values("X-Forwarded-For") {
+		hops = append(hops, strings.Split(h, ",")...)
+	}
+	for i := len(hops) - 1; i >= 0; i-- {
+		ip, err := netip.ParseAddr(strings.TrimSpace(hops[i]))
 		if err != nil {
-			host = r.RemoteAddr
+			break // malformed chain: stop trusting it
 		}
-		if ip, err := netip.ParseAddr(host); err == nil {
-			r = r.WithContext(context.WithValue(r.Context(), ipKey{}, ip.Unmap()))
+		ip = ip.Unmap()
+		if !isTrusted(ip, trusted) {
+			return ip, true
 		}
-		next.ServeHTTP(w, r)
-	})
+	}
+	return peer, true
+}
+
+func isTrusted(ip netip.Addr, trusted []netip.Prefix) bool {
+	for _, p := range trusted {
+		if p.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// ParsePrefixes parses a comma-separated CIDR list ("10.0.0.0/8, 127.0.0.1/32").
+func ParsePrefixes(s string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, part := range strings.Split(s, ",") {
+		if part = strings.TrimSpace(part); part == "" {
+			continue
+		}
+		p, err := netip.ParsePrefix(part)
+		if err != nil {
+			return nil, fmt.Errorf("invalid CIDR %q", part)
+		}
+		out = append(out, p.Masked())
+	}
+	return out, nil
 }
 
 // ClientIPFrom returns the IP stored by ClientIP.

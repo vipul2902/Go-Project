@@ -2,7 +2,7 @@
 
 A cloud-native deployment platform: register an application, define its environments, build it, deploy it to Kubernetes, and track status, health, logs and history — with Azure infrastructure provisioned by Terraform.
 
-> **Status:** Phase 10 (local Kubernetes) complete. A deployment now builds the image from the commit and rolls it out to Kubernetes, end to end. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
+> **Status:** Phase 11 (Helm) complete. CloudDeploy itself installs into Kubernetes with Helm, and deployments are built and rolled out from inside the cluster. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
 
 ## Architecture (target)
 
@@ -49,6 +49,8 @@ curl localhost:8080/readyz
 | `make docker-build` | Container image `clouddeploy-api` |
 | `make docker-up` / `make docker-down` | Full stack in containers: Postgres, then migrate job, then API |
 | `make k8s-up` / `make k8s-down` / `make test-k8s` | Local Kubernetes (Colima k3s) and the deployer tests against it |
+| `make helm-lint` | Lint the Helm chart with every values file and check its safety guards |
+| `make k8s-deploy` / `make k8s-forward` / `make k8s-uninstall` | Run CloudDeploy itself in the cluster with Helm (dev values) |
 
 ## Configuration
 
@@ -64,6 +66,7 @@ All configuration comes from environment variables (see [.env.example](.env.exam
 | `DATABASE_URL` | *(required)* | PostgreSQL connection string |
 | `DB_MAX_CONNS` / `DB_MIN_CONNS` | `10` / `1` | Pool bounds. Keep `replicas × max` below the server's `max_connections`. |
 | `DB_MAX_CONN_LIFETIME` / `DB_MAX_CONN_IDLE_TIME` | `30m` / `5m` | Connection recycling |
+| `TRUSTED_PROXY_CIDRS` | *(empty)* | Proxies allowed to set `X-Forwarded-For`, read from the right (see [security.md](docs/security.md)) |
 | `REDIS_URL` | *(required)* | Used for rate limiting. Startup fails if it's unreachable; at runtime an outage fails open (see ADR-003). |
 | `JWT_SECRET` | *(required)* | At least 32 bytes. Generate with `openssl rand -base64 48`. |
 | `ACCESS_TOKEN_TTL` / `REFRESH_TOKEN_TTL` | `15m` / `720h` | Token lifetimes |
@@ -113,7 +116,7 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 
 ## Roadmap
 
-0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s ✅ · 11 Helm · 12 monitoring/logs · 13 rollback · 14 dashboard · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
+0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s ✅ · 11 Helm ✅ · 12 monitoring/logs · 13 rollback · 14 dashboard · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
 
 ## Documentation
 
@@ -121,6 +124,6 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 - [Architecture decisions](docs/adr/)
 - [Local development](docs/local-development.md)
 - [Deployment domain: state machine, idempotency, audit](docs/deployment.md)
-- [Kubernetes: what a deployment creates, rollout tracking, safety](docs/kubernetes.md)
+- [Kubernetes: tenant deployments, and CloudDeploy on Helm](docs/kubernetes.md)
 - [Database design, ERD and indexes](docs/database.md)
 - [Security: authentication, tokens and RBAC](docs/security.md)

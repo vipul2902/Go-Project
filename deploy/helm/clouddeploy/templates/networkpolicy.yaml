@@ -1,0 +1,27 @@
+{{- if .Values.networkPolicy.enabled -}}
+{{- $fullname := include "clouddeploy.fullname" . -}}
+# Default deny for CloudDeploy's pods; then allow only what each needs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-default-deny
+  labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/instance: {{ .Release.Name }}}}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-api-ingress
+  labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "clouddeploy.selector" (dict "root" . "component" "api") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {{- toYaml .Values.networkPolicy.ingressNamespaceLabels | nindent 14 }}
+      ports: [{port: http, protocol: TCP}]
+{{- end }}

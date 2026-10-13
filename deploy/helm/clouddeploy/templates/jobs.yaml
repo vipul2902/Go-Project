@@ -1,0 +1,76 @@
+{{- $fullname := include "clouddeploy.fullname" . -}}
+{{- if .Values.migrations.enabled }}
+# Runs BEFORE install/upgrade: new API pods only start against a migrated
+# schema, and replicas never race to migrate on boot. A failed migration
+# fails the release, leaving the old version running.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullname }}-migrate
+  labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        {{- include "clouddeploy.labels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext: {{- include "clouddeploy.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "clouddeploy.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/migrate", "up"]
+          # Hooks run before the release's ConfigMap exists: secret only.
+          env:
+            - name: DATABASE_URL
+              valueFrom: {secretKeyRef: {name: {{ .Values.existingSecret }}, key: DATABASE_URL}}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 200m, memory: 64Mi}
+          securityContext: {{- include "clouddeploy.containerSecurityContext" . | nindent 12 }}
+{{- end }}
+{{- if .Values.seed.enabled }}
+---
+# Development data after install/upgrade. Idempotent; the binary itself
+# refuses to run unless APP_ENV=development.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullname }}-seed
+  labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 120
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext: {{- include "clouddeploy.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: seed
+          image: {{ include "clouddeploy.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/seed"]
+          env:
+            - {name: APP_ENV, value: {{ .Values.config.appEnv | quote }}}
+            - name: DATABASE_URL
+              valueFrom: {secretKeyRef: {name: {{ .Values.existingSecret }}, key: DATABASE_URL}}
+            - name: SEED_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.existingSecret }}, key: SEED_PASSWORD}}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 500m, memory: 128Mi}
+          securityContext: {{- include "clouddeploy.containerSecurityContext" . | nindent 12 }}
+{{- end }}

@@ -1,0 +1,18 @@
+{{- include "clouddeploy.validate" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "clouddeploy.fullname" . }}
+  labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+data:
+  # Non-secret configuration only. Secrets come from existingSecret.
+  APP_ENV: {{ .Values.config.appEnv | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  TRUSTED_PROXY_CIDRS: {{ .Values.config.trustedProxyCIDRs | quote }}
+  PORT: {{ .Values.api.port | quote }}
+  WORKER_PORT: {{ .Values.worker.port | quote }}
+  WORKER_CONCURRENCY: {{ .Values.worker.concurrency | quote }}
+  WORKER_LEASE_TTL: {{ .Values.worker.leaseTTL | quote }}
+  WORKER_BUILDER: {{ .Values.worker.builder | quote }}
+  WORKER_DEPLOYER: {{ .Values.worker.deployer | quote }}
+  BUILD_WORKDIR: /tmp

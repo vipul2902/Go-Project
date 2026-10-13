@@ -34,4 +34,4 @@ For reference, cache-aside works like this: read the cache; on a miss, load from
 
 ## Consequences
 - Redis is a required dependency at startup (fail fast on misconfiguration), but only an optional one at runtime.
-- Behind a load balancer, every client appears to come from the proxy's IP until trusted-proxy handling is added (Phase 10/11). `X-Forwarded-For` is ignored until then because any client can forge it.
+- Behind a load balancer, set `TRUSTED_PROXY_CIDRS` (added in Phase 11) so per-IP limits apply to real clients rather than to the proxy. `X-Forwarded-For` is only honoured from trusted proxies, read from the right.

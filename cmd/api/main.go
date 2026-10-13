@@ -61,6 +61,7 @@ func run() error {
 
 	handler, err := httpapi.NewApp(pool, httpapi.AppConfig{
 		Redis:           rdb,
+		TrustedProxies:  cfg.TrustedProxies,
 		Logger:          logger,
 		Version:         version,
 		JWTSecret:       []byte(cfg.JWTSecret),

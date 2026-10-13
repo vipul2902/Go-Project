@@ -1,0 +1,118 @@
+{{- $fullname := include "clouddeploy.fullname" . -}}
+{{- $socket := .Values.dev.dockerSocket.enabled -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fullname }}-worker
+  labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+---
+# Least privilege for the deployer: exactly the verbs it uses, cluster-wide
+# because tenant namespaces are created on demand. It cannot read Secrets
+# (the kubelet resolves secretKeyRef), exec into pods, or touch RBAC.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullname }}-worker
+  labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, create, patch]
+  - apiGroups: ["apps"]
+    resources: [deployments]
+    verbs: [get, create, patch]
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [get, create, patch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $fullname }}-worker
+  labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $fullname }}-worker}
+subjects:
+  - {kind: ServiceAccount, name: {{ $fullname }}-worker, namespace: {{ .Release.Namespace }}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-worker
+  labels:
+    {{- include "clouddeploy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels: {{- include "clouddeploy.selector" (dict "root" . "component" "worker") | nindent 6 }}
+  # Rolling is safe: old and new workers share the queue (SKIP LOCKED), and
+  # the old one drains its in-flight deployments on SIGTERM.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  template:
+    metadata:
+      labels:
+        {{- include "clouddeploy.labels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ $fullname }}-worker
+      enableServiceLinks: false
+      # Must exceed SHUTDOWN_TIMEOUT so in-flight deployments can drain.
+      terminationGracePeriodSeconds: {{ add 10 (trimSuffix "s" .Values.worker.shutdownTimeout | int) }}
+      {{- if $socket }}
+      # DEVELOPMENT ONLY (docker socket): root, see dev.dockerSocket in values.yaml.
+      securityContext: {seccompProfile: {type: RuntimeDefault}}
+      {{- else }}
+      securityContext: {{- include "clouddeploy.podSecurityContext" . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: worker
+          {{- if $socket }}
+          image: {{ .Values.dev.builderImage.repository }}:{{ .Values.dev.builderImage.tag | default .Values.image.tag | default .Chart.AppVersion }}
+          {{- else }}
+          image: {{ include "clouddeploy.image" . }}
+          command: ["/worker"]
+          {{- end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef: {name: {{ $fullname }}}
+            - secretRef: {name: {{ .Values.existingSecret }}}
+          env:
+            - {name: SHUTDOWN_TIMEOUT, value: {{ .Values.worker.shutdownTimeout | quote }}}
+          ports:
+            - {name: health, containerPort: {{ .Values.worker.port }}, protocol: TCP}
+          readinessProbe:
+            httpGet: {path: /readyz, port: health}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: health}
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources: {{- toYaml .Values.worker.resources | nindent 12 }}
+          {{- if $socket }}
+          securityContext: {allowPrivilegeEscalation: false}
+          {{- else }}
+          securityContext: {{- include "clouddeploy.containerSecurityContext" . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- if $socket }}
+            - {name: docker-sock, mountPath: /var/run/docker.sock}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 2Gi}
+        {{- if $socket }}
+        - name: docker-sock
+          hostPath: {path: {{ .Values.dev.dockerSocket.path }}, type: Socket}
+        {{- end }}

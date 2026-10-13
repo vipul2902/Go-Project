@@ -1,0 +1,36 @@
+# DEVELOPMENT ONLY: production uses Azure Cache for Redis. Same settings as
+# docker-compose: small memory cap, volatile-lru, no persistence (Redis only
+# holds rate-limit state; see ADR-003).
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: clouddeploy-deps
+spec:
+  selector: {app: redis}
+  ports: [{name: redis, port: 6379, targetPort: 6379}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: clouddeploy-deps
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: redis}}
+  template:
+    metadata: {labels: {app: redis}}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 999, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: redis
+          image: redis:7.4-alpine
+          args: ["--maxmemory", "64mb", "--maxmemory-policy", "volatile-lru", "--save", "", "--appendonly", "no"]
+          ports: [{containerPort: 6379}]
+          readinessProbe:
+            exec: {command: ["redis-cli", "ping"]}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 200m, memory: 96Mi}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
