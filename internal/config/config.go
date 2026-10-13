@@ -8,12 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/vipul2902/clouddeploy/internal/database"
+	"github.com/vipul2902/clouddeploy/internal/middleware"
 )
 
 // Environment names supported by the application.
@@ -40,6 +42,9 @@ type Config struct {
 	DBMaxConnIdleTime time.Duration
 
 	RedisURL string
+
+	// TrustedProxies may set X-Forwarded-For; empty = trust no one.
+	TrustedProxies []netip.Prefix
 
 	JWTSecret       string
 	AccessTokenTTL  time.Duration
@@ -81,6 +86,11 @@ func load(getenv func(string) string) (Config, error) {
 		RefreshTokenTTL: parseDuration(getenv, "REFRESH_TOKEN_TTL", 30*24*time.Hour, &errs),
 	}
 
+	if tp, err := middleware.ParsePrefixes(getenv("TRUSTED_PROXY_CIDRS")); err != nil {
+		errs = append(errs, fmt.Errorf("TRUSTED_PROXY_CIDRS: %w", err))
+	} else {
+		cfg.TrustedProxies = tp
+	}
 	if cfg.RedisURL == "" {
 		errs = append(errs, errors.New("REDIS_URL: required"))
 	}

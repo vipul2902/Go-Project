@@ -78,6 +78,60 @@ k8s-up: ## Start Colima with Kubernetes (k3s) enabled
 k8s-down: ## Disable Kubernetes to free ~1 GB of RAM (Colima keeps running)
 	colima kubernetes stop
 
+CHART     := deploy/helm/clouddeploy
+KCTX      := $(or $(KUBE_CONTEXT),colima)
+KNS       := clouddeploy
+KDEPS_NS  := clouddeploy-deps
+
+.PHONY: helm-lint
+helm-lint: ## Lint the chart with every values file and check its guards
+	@for v in dev staging prod; do helm lint $(CHART) -f $(CHART)/values-$$v.yaml --quiet || exit 1; done
+	@helm lint $(CHART) --quiet
+	@! helm template x $(CHART) -f $(CHART)/values-prod.yaml --set dev.dockerSocket.enabled=true >/dev/null 2>&1 \
+		|| (echo "guard failed: docker socket allowed in production"; exit 1)
+	@echo "helm-lint: ok"
+
+.PHONY: k8s-images
+k8s-images: ## Build the app and dev worker-builder images into the cluster's Docker
+	docker build -q -t clouddeploy:dev .
+	docker build -q --target worker-builder -t clouddeploy-worker-builder:dev .
+
+.PHONY: k8s-deps
+k8s-deps: ## DEV ONLY: Postgres + Redis inside the cluster (production uses managed services)
+	@set -a; source .env; set +a; \
+	kubectl --context $(KCTX) create namespace $(KDEPS_NS) --dry-run=client -o yaml | kubectl --context $(KCTX) apply -f - >/dev/null; \
+	printf 'password=%s\n' "$$POSTGRES_PASSWORD" | kubectl --context $(KCTX) -n $(KDEPS_NS) create secret generic postgres-credentials \
+		--from-env-file=/dev/stdin --dry-run=client -o yaml | kubectl --context $(KCTX) apply -f - >/dev/null
+	kubectl --context $(KCTX) apply -f deploy/kubernetes/dev-deps/
+	kubectl --context $(KCTX) -n $(KDEPS_NS) rollout status statefulset/postgres --timeout=180s
+	kubectl --context $(KCTX) -n $(KDEPS_NS) rollout status deployment/redis --timeout=120s
+
+.PHONY: k8s-secrets
+k8s-secrets: ## DEV ONLY: create the app Secret from .env (values never on the command line)
+	@set -a; source .env; set +a; \
+	kubectl --context $(KCTX) create namespace $(KNS) --dry-run=client -o yaml | kubectl --context $(KCTX) apply -f - >/dev/null; \
+	kubectl --context $(KCTX) label namespace $(KNS) --overwrite \
+		pod-security.kubernetes.io/enforce=privileged pod-security.kubernetes.io/warn=restricted >/dev/null; \
+	{ printf 'DATABASE_URL=postgres://clouddeploy:%s@postgres.$(KDEPS_NS).svc.cluster.local:5432/clouddeploy?sslmode=disable\n' "$$POSTGRES_PASSWORD"; \
+	  printf 'REDIS_URL=redis://redis.$(KDEPS_NS).svc.cluster.local:6379/0\n'; \
+	  printf 'JWT_SECRET=%s\nSEED_PASSWORD=%s\n' "$$JWT_SECRET" "$$SEED_PASSWORD"; } \
+	| kubectl --context $(KCTX) -n $(KNS) create secret generic clouddeploy-secrets --from-env-file=/dev/stdin \
+		--dry-run=client -o yaml | kubectl --context $(KCTX) apply -f - >/dev/null
+	@echo "secret $(KNS)/clouddeploy-secrets applied"
+
+.PHONY: k8s-deploy
+k8s-deploy: k8s-images k8s-deps k8s-secrets ## Install/upgrade CloudDeploy in the local cluster (dev values)
+	helm upgrade --install clouddeploy $(CHART) --kube-context $(KCTX) -n $(KNS) \
+		-f $(CHART)/values-dev.yaml --wait --timeout 5m
+
+.PHONY: k8s-forward
+k8s-forward: ## Port-forward the in-cluster API to localhost:8080
+	kubectl --context $(KCTX) -n $(KNS) port-forward svc/clouddeploy-api 8080:80
+
+.PHONY: k8s-uninstall
+k8s-uninstall: ## Remove the CloudDeploy release (keeps the dev database)
+	helm uninstall clouddeploy --kube-context $(KCTX) -n $(KNS)
+
 .PHONY: docker-build
 docker-build: ## Build the API container image
 	docker build --build-arg VERSION=$(VERSION) -t clouddeploy-api:$(VERSION) -t clouddeploy-api:latest .

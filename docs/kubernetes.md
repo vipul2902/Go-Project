@@ -61,5 +61,44 @@ After applying, the deployer polls every 2 seconds until one of these happens:
 - **Namespace ownership.** The deployer refuses to deploy into a namespace that already exists unless it carries `managed-by=clouddeploy` and the same `project-id`. It can never take over `kube-system` or another team's namespace. The database already prevents reserved and duplicate names; this is the cluster-side check.
 - **Resource bounds** come from the environment's validated limits (Phase 5). Without them, pods would be unbounded.
 
+## Running CloudDeploy itself on Kubernetes (Helm)
+
+The chart is in [deploy/helm/clouddeploy](../deploy/helm/clouddeploy). It installs the API, the worker and the migration Job.
+
+```bash
+make helm-lint     # lint with every values file and check the safety guards
+make k8s-deploy    # build images, start dev deps, create the Secret, run helm upgrade --install (dev values)
+make k8s-forward   # API on localhost:8080
+make k8s-uninstall
+```
+
+| Values file | Use |
+|---|---|
+| `values.yaml` | Defaults, safe for production on their own (`appEnv=production`, 2 API replicas, a PDB) |
+| `values-dev.yaml` | Local k3s: 1 replica each, debug logging, seed data, the Docker-socket worker |
+| `values-staging.yaml` | Production topology at a smaller scale: ingress, NetworkPolicy |
+| `values-prod.yaml` | 3 to 10 API replicas through an HPA, PDB `minAvailable: 2`, ingress with TLS, NetworkPolicy |
+
+### Design
+
+| Decision | Why |
+|---|---|
+| **Migrations run as a `pre-install`/`pre-upgrade` hook Job** | The schema is migrated before any new API pod starts. A failed migration fails the release and leaves the old version running. Replicas never race to migrate on boot. |
+| **`existingSecret`; the chart contains no secrets** | Secrets come from the platform's secret store (Azure Key Vault through the CSI driver in production). Locally, `make k8s-secrets` pipes values from `.env` without putting them on the command line. |
+| **ConfigMap checksum annotation** | A config change rolls the pods, which otherwise wouldn't notice it. |
+| **API: no service-account token**; **worker: least-privilege ClusterRole** | The API never calls Kubernetes. The worker gets only the verbs the deployer uses: `get/create/patch` on namespaces, deployments and services, `get/list` on pods, `get` on pod logs. It **can't read Secrets** (verified with `kubectl auth can-i`). |
+| **Pods meet Pod Security "restricted"** | Non-root UID 65532, read-only root filesystem, all capabilities dropped, seccomp `RuntimeDefault`. The namespace *warns* on restricted, so the dev-only exception is flagged on every install. |
+| **`preStop: sleep 5`** + `maxUnavailable: 0` | Endpoint removal propagates asynchronously, so the pod keeps serving briefly after it's scheduled to stop. Measured: **225 of 225 in-cluster requests succeeded** while the only API pod was replaced. |
+| **Worker `terminationGracePeriodSeconds` = SHUTDOWN_TIMEOUT + 10 s** | In-flight deployments drain before Kubernetes kills the pod (Phase 8). |
+| **Guards in templates (`fail`)** | Rendering fails if the Docker socket is enabled with `appEnv=production`, if `builder=docker` is set without the socket, if there's no `existingSecret`, or if the HPA minimum is below 2. |
+
+### Development-only pieces
+- **Dependencies:** PostgreSQL (a StatefulSet with a 1 GiB PVC) and Redis run in the `clouddeploy-deps` namespace from [deploy/kubernetes/dev-deps](../deploy/kubernetes/dev-deps). They're deliberately **outside the chart**: in production these are managed Azure services, and the chart only receives their URLs.
+- **In-cluster builds:** the dev worker runs the `worker-builder` image (Alpine with git, docker and buildx) and mounts the node's Docker socket. That's root on the node, which is why the dev namespace is labelled `enforce=privileged` and why the chart refuses this setting in production (ADR-008). Production builds need an isolated remote builder (Phase 18).
+- When the cluster stack is running, stop the Compose `deps` profile (`docker compose --profile deps stop`) to save RAM.
+
+### Upgrades and rollbacks
+`helm upgrade` rolls pods with zero downtime. `helm rollback <rev>` restores the previous manifests and config; verified by rolling a config change back. Remember that **database migrations aren't rolled back by `helm rollback`**. Migrations must therefore stay backward compatible (expand/contract, see [database.md](database.md)), so that the previous release still works against the newer schema.
+
 ## Not yet included
-Ingress, HorizontalPodAutoscaler, NetworkPolicy and PodDisruptionBudget are planned with Helm and later phases. Apps are reached in-cluster through their Service; locally, use `kubectl -n <ns> port-forward svc/<project> 8888:80`.
+For **CloudDeploy itself**, the chart provides Ingress, HPA, PDB and NetworkPolicy. For **tenant apps**, they're planned for later phases. Apps are reached in-cluster through their Service; locally, use `kubectl -n <ns> port-forward svc/<project> 8888:80`.

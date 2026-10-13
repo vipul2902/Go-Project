@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/vipul2902/clouddeploy/internal/auth"
@@ -31,6 +32,8 @@ type Deps struct {
 	SoftChecks map[string]ReadinessCheck
 	// Limiter applies the per-user API limit after authentication (nil: off).
 	Limiter *ratelimit.Limiter
+	// TrustedProxies may set X-Forwarded-For (e.g. the ingress controller).
+	TrustedProxies []netip.Prefix
 	// Handlers are optional so health endpoints can be tested in isolation.
 	Auth          *auth.Handler
 	Organizations *organizations.Handler
@@ -71,7 +74,7 @@ func NewRouter(d Deps) http.Handler {
 
 	return middleware.Chain(mux,
 		middleware.RequestID,
-		middleware.ClientIP,
+		middleware.ClientIP(d.TrustedProxies),
 		middleware.Logger(d.Logger),
 		middleware.Recover(d.Logger, func(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, r, http.StatusInternalServerError, httpx.CodeInternal, "internal server error")

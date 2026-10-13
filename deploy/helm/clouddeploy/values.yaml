@@ -1,0 +1,81 @@
+# Defaults are production-safe: any environment-specific value lives in
+# values-<env>.yaml, never in templates.
+
+image:
+  repository: clouddeploy
+  tag: ""                # defaults to .Chart.AppVersion; use immutable tags (git SHA)
+  pullPolicy: IfNotPresent
+
+# Name of a pre-existing Secret with keys DATABASE_URL, REDIS_URL, JWT_SECRET
+# (and SEED_PASSWORD when seed.enabled). The chart never contains secrets:
+# create it from your secret store (e.g. Azure Key Vault via the CSI driver).
+existingSecret: clouddeploy-secrets
+
+config:
+  appEnv: production     # development | staging | production
+  logLevel: info
+  # CIDRs of proxies allowed to set X-Forwarded-For (the ingress controller).
+  trustedProxyCIDRs: ""
+
+api:
+  replicas: 2
+  port: 8080
+  shutdownTimeout: 20s
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+  service:
+    type: ClusterIP
+    port: 80
+  pdb:
+    enabled: true
+    minAvailable: 1      # voluntary disruptions (node drains) keep >= 1 pod
+  hpa:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+worker:
+  replicas: 1
+  concurrency: 2
+  port: 8081
+  leaseTTL: 30s
+  shutdownTimeout: 30s
+  # docker requires dev.dockerSocket (development only). Production builds
+  # need an isolated remote builder (ADR-008, Phase 18); until then dryrun.
+  builder: dryrun        # docker | dryrun
+  deployer: kubernetes   # kubernetes | dryrun
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+
+migrations:
+  enabled: true          # Helm hook Job before install/upgrade
+
+seed:
+  enabled: false         # development data; the seed binary refuses non-dev
+
+ingress:
+  enabled: false
+  className: ""
+  host: clouddeploy.example.com
+  tls:
+    enabled: true
+    secretName: clouddeploy-tls
+
+networkPolicy:
+  enabled: false
+  # Namespace labels allowed to reach the API (e.g. the ingress controller's).
+  ingressNamespaceLabels:
+    kubernetes.io/metadata.name: ingress-nginx
+
+# DEVELOPMENT ONLY. Mounting the node's Docker socket gives the worker root
+# on the node. The chart refuses to render this with config.appEnv=production.
+dev:
+  dockerSocket:
+    enabled: false
+    path: /var/run/docker.sock
+  builderImage:
+    repository: clouddeploy-worker-builder
+    tag: ""

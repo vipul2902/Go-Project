@@ -1,0 +1,49 @@
+# DEVELOPMENT ONLY: in production the database is Azure Database for
+# PostgreSQL (managed backups, HA, patching). These manifests stand in for
+# that managed service inside the local cluster, in their own namespace so
+# the app treats them like an external dependency.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: clouddeploy-deps
+spec:
+  selector: {app: postgres}
+  ports: [{name: postgres, port: 5432, targetPort: 5432}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: clouddeploy-deps
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector: {matchLabels: {app: postgres}}
+  template:
+    metadata: {labels: {app: postgres}}
+    spec:
+      securityContext: {fsGroup: 70, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          args: ["-c", "max_connections=50", "-c", "shared_buffers=64MB"]
+          env:
+            - {name: POSTGRES_USER, value: clouddeploy}
+            - {name: POSTGRES_DB, value: clouddeploy}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: postgres-credentials, key: password}}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports: [{containerPort: 5432}]
+          readinessProbe:
+            exec: {command: ["pg_isready", "-U", "clouddeploy", "-d", "clouddeploy"]}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 1Gi}}

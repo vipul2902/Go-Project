@@ -1,0 +1,27 @@
+# Local cluster (Colima k3s). Images are built locally (make k8s-images), so
+# nothing is pulled from a registry.
+image:
+  tag: dev
+config:
+  appEnv: development
+  logLevel: debug
+api:
+  replicas: 1
+  pdb:
+    enabled: false       # single replica: a PDB would block node drains
+  resources:
+    requests: {cpu: 20m, memory: 32Mi}
+    limits: {cpu: 250m, memory: 128Mi}
+worker:
+  builder: docker
+  shutdownTimeout: 20s
+  resources:
+    requests: {cpu: 20m, memory: 32Mi}
+    limits: {cpu: 500m, memory: 192Mi}
+seed:
+  enabled: true
+dev:
+  dockerSocket:
+    enabled: true
+  builderImage:
+    tag: dev

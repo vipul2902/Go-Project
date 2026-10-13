@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -25,7 +26,8 @@ type AppConfig struct {
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
 	// Redis enables rate limiting; nil disables it (most integration tests).
-	Redis *redis.Client
+	Redis          *redis.Client
+	TrustedProxies []netip.Prefix
 }
 
 // NewApp wires every service and handler into the root HTTP handler. It is
@@ -48,15 +50,16 @@ func NewApp(pool *pgxpool.Pool, cfg AppConfig) (http.Handler, error) {
 	projectSvc := projects.NewService(pool)
 	envSvc := environments.NewService(pool)
 	return NewRouter(Deps{
-		Logger:        cfg.Logger,
-		Version:       cfg.Version,
-		Checks:        map[string]ReadinessCheck{"postgres": pool.Ping},
-		SoftChecks:    soft,
-		Limiter:       limiter,
-		Auth:          auth.NewHandler(authSvc, limiter),
-		Organizations: organizations.NewHandler(organizations.NewService(pool)),
-		Projects:      projects.NewHandler(projectSvc),
-		Environments:  environments.NewHandler(envSvc, projectSvc),
-		Deployments:   deployments.NewHandler(deployments.NewService(pool), projectSvc, envSvc),
+		Logger:         cfg.Logger,
+		Version:        cfg.Version,
+		Checks:         map[string]ReadinessCheck{"postgres": pool.Ping},
+		SoftChecks:     soft,
+		Limiter:        limiter,
+		TrustedProxies: cfg.TrustedProxies,
+		Auth:           auth.NewHandler(authSvc, limiter),
+		Organizations:  organizations.NewHandler(organizations.NewService(pool)),
+		Projects:       projects.NewHandler(projectSvc),
+		Environments:   environments.NewHandler(envSvc, projectSvc),
+		Deployments:    deployments.NewHandler(deployments.NewService(pool), projectSvc, envSvc),
 	}), nil
 }
