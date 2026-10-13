@@ -92,5 +92,30 @@ services:
         limits:
           memory: 128m
 
+  worker:
+    profiles: ["core"]
+    build:
+      context: .
+      args:
+        VERSION: compose
+    entrypoint: ["/worker"]
+    environment:
+      APP_ENV: development
+      LOG_LEVEL: info
+      DATABASE_URL: postgres://clouddeploy:${POSTGRES_PASSWORD}@postgres:5432/clouddeploy?sslmode=disable
+      DEPLOY_EXECUTOR: dryrun # simulated until Phases 9-10
+      WORKER_CONCURRENCY: "2"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s # > SHUTDOWN_TIMEOUT so in-flight jobs can drain
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+
 volumes:
   pgdata:

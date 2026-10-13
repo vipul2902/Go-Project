@@ -125,4 +125,5 @@ Deployments are asynchronous: creating one returns `202 Accepted` with status `Q
 | `POST /deployments` | developer (**admin for production**) | Body: `project_id, environment, commit_sha`. Optional `Idempotency-Key` header. Returns 202 when created and 200 with `Idempotent-Replayed: true` on a retry. 409 `DEPLOYMENT_IN_PROGRESS` includes `details.active_deployment_id`. 422 `IDEMPOTENCY_KEY_REUSED` |
 | `GET /deployments` | viewer | Filters: `project_id`, `environment`, `status`. Newest first, cursor pagination |
 | `GET /deployments/{id}` | viewer | Includes `config` (the snapshot), `duration_seconds` and `triggered_by` |
-| `POST /deployments/{id}/cancel` | developer (**admin for production**) | 409 `INVALID_TRANSITION` if the deployment has already finished |
+| `POST /deployments/{id}/cancel` | developer (**admin for production**) | 409 `INVALID_TRANSITION` if the deployment has already finished. A running build or deploy is stopped within one heartbeat. |
+| `GET /deployments/{id}/logs` | viewer | Pipeline log lines, oldest first. `?after=<id>` (to tail) and `?limit` (1–1000, default 200). The response includes `next_after` and the current `status`. |
