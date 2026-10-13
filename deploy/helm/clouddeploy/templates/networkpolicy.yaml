@@ -24,4 +24,37 @@ spec:
         - namespaceSelector:
             matchLabels: {{- toYaml .Values.networkPolicy.ingressNamespaceLabels | nindent 14 }}
       ports: [{port: http, protocol: TCP}]
+{{- if .Values.web.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-web-ingress
+  labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "clouddeploy.selector" (dict "root" . "component" "web") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {{- toYaml .Values.networkPolicy.ingressNamespaceLabels | nindent 14 }}
+      ports: [{port: http, protocol: TCP}]
+---
+# The API accepts traffic from the web pods (their /api proxy).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-api-from-web
+  labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "clouddeploy.selector" (dict "root" . "component" "api") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {{- include "clouddeploy.selector" (dict "root" . "component" "web") | nindent 14 }}
+      ports: [{port: http, protocol: TCP}]
+{{- end }}
 {{- end }}

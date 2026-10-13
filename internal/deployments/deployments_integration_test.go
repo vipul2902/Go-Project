@@ -544,3 +544,34 @@ func TestMonitoringWithoutClusterIs503(t *testing.T) {
 		}
 	}
 }
+
+func TestDashboardSummary(t *testing.T) {
+	f := setup(t)
+	svc := deployments.NewService(f.api.Pool)
+	ok := f.deploy(f.dev.Token, "development", "aaaaaaa").Str("id")
+	svc.Transition(t.Context(), ok, deployments.StatusBuilding, "")
+	svc.Transition(t.Context(), ok, deployments.StatusDeploying, "")
+	svc.Transition(t.Context(), ok, deployments.StatusRunning, "")
+	bad := f.deploy(f.dev.Token, "development", "bbbbbbb").Str("id")
+	svc.Transition(t.Context(), bad, deployments.StatusFailed, "boom")
+	f.deploy(f.admin.Token, "production", "ccccccc") // stays QUEUED (active)
+
+	res := f.api.Do(http.MethodGet, "/api/v1/dashboard", f.viewer.Token, nil)
+	if res.Status != http.StatusOK {
+		t.Fatalf("%d %v", res.Status, res.Body)
+	}
+	b := res.Body
+	last := b["last_30_days"].(map[string]any)
+	if b["projects"].(float64) != 1 || b["environments"].(float64) != 2 || b["active_deployments"].(float64) != 1 ||
+		last["RUNNING"].(float64) != 1 || last["FAILED"].(float64) != 1 || last["QUEUED"].(float64) != 1 || b["success_rate_30d"].(float64) != 0.5 {
+		t.Errorf("summary: %v", b)
+	}
+	recent := b["recent_deployments"].([]any)
+	if len(recent) != 3 || recent[0].(map[string]any)["project_name"] != "billing-api" {
+		t.Errorf("recent: %v", recent)
+	}
+	// Someone in another organization sees none of it.
+	if res := f.api.Do(http.MethodGet, "/api/v1/dashboard", f.outside.Token, nil); res.Body["projects"].(float64) != 0 || len(res.Body["recent_deployments"].([]any)) != 0 {
+		t.Errorf("outsider summary: %v", res.Body)
+	}
+}

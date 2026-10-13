@@ -36,17 +36,18 @@ type querier interface {
 }
 
 const selectDeployment = `
-	SELECT d.id, d.project_id, d.environment_id, e.name, d.commit_sha, d.image, d.status,
+	SELECT d.id, d.project_id, pr.name, d.environment_id, e.name, d.commit_sha, d.image, d.status,
 	       d.triggered_by, u.name, d.rollback_of, d.error_message, d.config,
 	       d.created_at, d.started_at, d.completed_at
 	FROM deployments d
 	JOIN environments e ON e.id = d.environment_id
+	JOIN projects pr ON pr.id = d.project_id
 	LEFT JOIN users u ON u.id = d.triggered_by`
 
 func (s *Service) scan(r pgx.CollectableRow) (Deployment, error) {
 	var d Deployment
 	var triggerID, triggerName *string
-	err := r.Scan(&d.ID, &d.ProjectID, &d.EnvironmentID, &d.Environment, &d.CommitSHA, &d.Image, &d.Status,
+	err := r.Scan(&d.ID, &d.ProjectID, &d.ProjectName, &d.EnvironmentID, &d.Environment, &d.CommitSHA, &d.Image, &d.Status,
 		&triggerID, &triggerName, &d.RollbackOf, &d.ErrorMessage, &d.Config,
 		&d.CreatedAt, &d.StartedAt, &d.CompletedAt)
 	if triggerID != nil && triggerName != nil {

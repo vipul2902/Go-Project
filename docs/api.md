@@ -50,8 +50,8 @@ GET /api/v1/projects?limit=20&sort=name&cursor=eyJzIjoibmFtZSIs...
 | Method and path | Body | Result |
 |---|---|---|
 | `POST /auth/register` | `email, name, password, organization_name` | 201: user and tokens. The user becomes admin of a new organization. |
-| `POST /auth/login` | `email, password` | 200: user and tokens. 401 `INVALID_CREDENTIALS` |
-| `POST /auth/refresh` | `refresh_token` | 200: a new token pair (rotated). 401 `INVALID_REFRESH_TOKEN` |
+| `POST /auth/login` | `email, password` | 200: user and tokens. 401 `INVALID_CREDENTIALS`. With `X-Auth-Mode: cookie`, the refresh token is set as an HttpOnly cookie instead of being returned in the body (see [security.md](security.md)). |
+| `POST /auth/refresh` | `refresh_token`, or nothing in cookie mode | 200: a new token pair (rotated). 401 `INVALID_REFRESH_TOKEN` |
 | `POST /auth/logout` | `refresh_token` | 204 (idempotent) |
 | `GET /auth/me` | none | The user and their organization memberships and roles |
 
@@ -117,6 +117,10 @@ Rules for variables:
 - Keys are `UPPER_SNAKE_CASE`. The `CLOUDDEPLOY_` and `KUBERNETES_` prefixes are reserved.
 - Values are limited to 32 KiB, and an environment can hold at most 100 variables.
 - Keys that look like credentials (`*PASSWORD*`, `*SECRET*`, `*TOKEN*`, `*API_KEY*`, `*PRIVATE_KEY*`, `*CREDENTIAL*`, `*ACCESS_KEY*`) **must** use `secret_ref`.
+
+## Dashboard
+
+`GET /dashboard` (any member) returns totals across every project the caller can see: `projects`, `environments`, `active_deployments`, `last_30_days` (counts by status), `success_rate_30d` (RUNNING / (RUNNING + FAILED), or null) and the 8 most recent deployments. Every deployment response includes `project_name`.
 
 ## Deployments
 

@@ -42,7 +42,17 @@ Logout revokes the refresh token's family. Access tokens are stateless and **rem
 
 ### Token transport
 
-Tokens are returned in the JSON body and sent back as `Authorization: Bearer`. This works for the API, the CLI and the SPA. Responses carrying tokens set `Cache-Control: no-store`. Phase 14 will decide on browser storage: keeping the access token in memory and the refresh token in an `HttpOnly; Secure; SameSite=Strict` cookie is the preferred option.
+- **API and CLI clients** receive both tokens in the JSON body and send the access token as `Authorization: Bearer`.
+- **Browsers** (the dashboard) use **cookie mode** by sending `X-Auth-Mode: cookie`:
+  - The refresh token is set as `cd_refresh; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth` and is **omitted from the response body**, so JavaScript never sees it.
+  - The access token is kept in memory only, never in `localStorage`.
+  - **CSRF:** cookie-based refresh and logout *require* the `X-Auth-Mode` header. Cross-site forms can't send custom headers, and the API never enables CORS. A test checks that the cookie alone is refused.
+  - The cookie is scoped to the auth endpoints, so it's never sent to the rest of the API.
+- Responses carrying tokens set `Cache-Control: no-store`.
+
+### Dashboard (nginx)
+- The CSP allows only our own origin: no inline scripts and no third-party code. The page also sends `X-Frame-Options: DENY` (clickjacking), `nosniff` and `no-referrer`.
+- The nginx container runs unprivileged with a read-only root filesystem.
 
 ## RBAC
 

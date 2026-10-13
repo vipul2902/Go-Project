@@ -55,7 +55,7 @@ func NewService(pool *pgxpool.Pool, tokens *TokenIssuer, refreshTTL time.Duratio
 type TokenPair struct {
 	AccessToken      string    `json:"access_token"`
 	AccessExpiresAt  time.Time `json:"access_token_expires_at"`
-	RefreshToken     string    `json:"refresh_token"`
+	RefreshToken     string    `json:"refresh_token,omitempty"` // omitted in cookie mode
 	RefreshExpiresAt time.Time `json:"refresh_token_expires_at"`
 	TokenType        string    `json:"token_type"`
 }
