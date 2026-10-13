@@ -12,6 +12,7 @@ import (
 	"github.com/vipul2902/clouddeploy/internal/environments"
 	"github.com/vipul2902/clouddeploy/internal/httpx"
 	"github.com/vipul2902/clouddeploy/internal/middleware"
+	"github.com/vipul2902/clouddeploy/internal/monitoring"
 	"github.com/vipul2902/clouddeploy/internal/organizations"
 	"github.com/vipul2902/clouddeploy/internal/projects"
 	"github.com/vipul2902/clouddeploy/internal/ratelimit"
@@ -40,6 +41,7 @@ type Deps struct {
 	Projects      *projects.Handler
 	Environments  *environments.Handler
 	Deployments   *deployments.Handler
+	Monitoring    *monitoring.Handler
 }
 
 // NewRouter builds the root handler with all routes and middleware.
@@ -64,6 +66,9 @@ func NewRouter(d Deps) http.Handler {
 		}
 		if d.Deployments != nil {
 			d.Deployments.Routes(mux, protected)
+		}
+		if d.Monitoring != nil {
+			d.Monitoring.Routes(mux, protected)
 		}
 	}
 

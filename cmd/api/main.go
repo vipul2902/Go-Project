@@ -12,9 +12,12 @@ import (
 	"syscall"
 	"time"
 
+	"k8s.io/client-go/kubernetes"
+
 	"github.com/vipul2902/clouddeploy/internal/config"
 	"github.com/vipul2902/clouddeploy/internal/database"
 	"github.com/vipul2902/clouddeploy/internal/httpapi"
+	"github.com/vipul2902/clouddeploy/internal/kube"
 	"github.com/vipul2902/clouddeploy/internal/redisx"
 )
 
@@ -59,7 +62,18 @@ func run() error {
 	}
 	defer rdb.Close()
 
+	// Monitoring is optional: without cluster access the API still serves
+	// everything else, and monitoring endpoints answer 503.
+	var kubeClient kubernetes.Interface
+	if cs, err := kube.NewClientset(cfg.KubeContext); err != nil {
+		logger.Warn("monitoring disabled: no cluster access", "err", err)
+	} else {
+		kubeClient = cs
+		logger.Info("monitoring enabled", "kube_context", cfg.KubeContext)
+	}
+
 	handler, err := httpapi.NewApp(pool, httpapi.AppConfig{
+		Kube:            kubeClient,
 		Redis:           rdb,
 		TrustedProxies:  cfg.TrustedProxies,
 		Logger:          logger,

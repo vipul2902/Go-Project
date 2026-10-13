@@ -4,8 +4,35 @@ kind: ServiceAccount
 metadata:
   name: {{ $fullname }}-api
   labels: {{- include "clouddeploy.labels" . | nindent 4 }}
-# The API never calls the Kubernetes API: no token is mounted.
-automountServiceAccountToken: false
+---
+# Read-only access for monitoring (environment health, application logs).
+# No Secrets, no writes, no exec. Tenant isolation is enforced by the API:
+# the namespace always comes from an environment the caller is authorized
+# for, never from request input.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullname }}-api-monitoring
+  labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: [deployments]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $fullname }}-api-monitoring
+  labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $fullname }}-api-monitoring}
+subjects:
+  - {kind: ServiceAccount, name: {{ $fullname }}-api, namespace: {{ .Release.Namespace }}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -34,7 +61,8 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ $fullname }}-api
-      automountServiceAccountToken: false
+      # Token needed for the read-only monitoring role above.
+      automountServiceAccountToken: true
       enableServiceLinks: false
       # preStop (5s) + SHUTDOWN_TIMEOUT (20s) must fit inside this.
       terminationGracePeriodSeconds: 30

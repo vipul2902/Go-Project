@@ -186,3 +186,19 @@ func (s *Service) Logs(ctx context.Context, id string, after int64, limit int) (
 	}
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[LogLine])
 }
+
+// LatestSucceeded returns the environment's most recent RUNNING deployment,
+// or nil if it has never deployed successfully. Monitoring compares it with
+// the release live in the cluster to detect drift.
+func (s *Service) LatestSucceeded(ctx context.Context, environmentID string) (*Deployment, error) {
+	rows, err := s.pool.Query(ctx, selectDeployment+`
+		WHERE d.environment_id = $1 AND d.status = 'RUNNING' ORDER BY d.completed_at DESC LIMIT 1`, environmentID)
+	if err != nil {
+		return nil, err
+	}
+	d, err := pgx.CollectExactlyOneRow(rows, s.scan)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return &d, err
+}

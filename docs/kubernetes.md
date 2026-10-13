@@ -61,13 +61,26 @@ After applying, the deployer polls every 2 seconds until one of these happens:
 - **Namespace ownership.** The deployer refuses to deploy into a namespace that already exists unless it carries `managed-by=clouddeploy` and the same `project-id`. It can never take over `kube-system` or another team's namespace. The database already prevents reserved and duplicate names; this is the cluster-side check.
 - **Resource bounds** come from the environment's validated limits (Phase 5). Without them, pods would be unbounded.
 
+## Monitoring deployed apps
+
+The API reads live state through `kube.Inspector` (read-only):
+
+| Feature | Source | Notes |
+|---|---|---|
+| Health | The Deployment plus its pods (selected by `app.kubernetes.io/instance`) | One status. `failing` means pods of the *current* release are in a fatal state, such as `CrashLoopBackOff`. It's reported immediately, rather than showing `progressing` until the 5-minute deadline. |
+| Drift | The live pod template compared with the last successful deployment's snapshot | Catches failed rollouts and out-of-band `kubectl` changes |
+| Logs | `pods/log` with timestamps | Merged across pods by timestamp, sanitized with `logsafe`, at most 10 pods, 1,000 lines and 256 KB per pod |
+| Follow | Streaming `pods/log`, one goroutine per pod, merged into a single SSE writer | Covers the pods present when the stream started |
+
+**The namespace always comes from the database** (the environment the caller is authorized for), never from the request. That, not Kubernetes RBAC, is what isolates tenants from each other's pods.
+
 ## Running CloudDeploy itself on Kubernetes (Helm)
 
 The chart is in [deploy/helm/clouddeploy](../deploy/helm/clouddeploy). It installs the API, the worker and the migration Job.
 
 ```bash
 make helm-lint     # lint with every values file and check the safety guards
-make k8s-deploy    # build images, start dev deps, create the Secret, run helm upgrade --install (dev values)
+make k8s-deploy    # build content-tagged images, start dev deps, create the Secret, run helm upgrade --install (dev values)
 make k8s-forward   # API on localhost:8080
 make k8s-uninstall
 ```
@@ -86,11 +99,14 @@ make k8s-uninstall
 | **Migrations run as a `pre-install`/`pre-upgrade` hook Job** | The schema is migrated before any new API pod starts. A failed migration fails the release and leaves the old version running. Replicas never race to migrate on boot. |
 | **`existingSecret`; the chart contains no secrets** | Secrets come from the platform's secret store (Azure Key Vault through the CSI driver in production). Locally, `make k8s-secrets` pipes values from `.env` without putting them on the command line. |
 | **ConfigMap checksum annotation** | A config change rolls the pods, which otherwise wouldn't notice it. |
-| **API: no service-account token**; **worker: least-privilege ClusterRole** | The API never calls Kubernetes. The worker gets only the verbs the deployer uses: `get/create/patch` on namespaces, deployments and services, `get/list` on pods, `get` on pod logs. It **can't read Secrets** (verified with `kubectl auth can-i`). |
+| **Least-privilege ClusterRoles** | **API** (since Phase 12; before that it had no token): read-only `get` on deployments, `get/list` on pods, `get` on pod logs, for monitoring. **Worker:** only the verbs the deployer uses, `get/create/patch` on namespaces, deployments and services, `get/list` on pods, `get` on pod logs. **Neither can read Secrets** (verified with `kubectl auth can-i`). |
 | **Pods meet Pod Security "restricted"** | Non-root UID 65532, read-only root filesystem, all capabilities dropped, seccomp `RuntimeDefault`. The namespace *warns* on restricted, so the dev-only exception is flagged on every install. |
 | **`preStop: sleep 5`** + `maxUnavailable: 0` | Endpoint removal propagates asynchronously, so the pod keeps serving briefly after it's scheduled to stop. Measured: **225 of 225 in-cluster requests succeeded** while the only API pod was replaced. |
 | **Worker `terminationGracePeriodSeconds` = SHUTDOWN_TIMEOUT + 10 s** | In-flight deployments drain before Kubernetes kills the pod (Phase 8). |
 | **Guards in templates (`fail`)** | Rendering fails if the Docker socket is enabled with `appEnv=production`, if `builder=docker` is set without the socket, if there's no `existingSecret`, or if the HPA minimum is below 2. |
+
+### Image tags
+`make k8s-images` tags each dev build `dev-<image digest>`. A mutable tag like `:dev` would leave the Deployment spec unchanged after a rebuild, so Kubernetes would never roll the pods. This happened during Phase 12: `helm upgrade` reported success but kept serving the old code. CD will use immutable git SHAs.
 
 ### Development-only pieces
 - **Dependencies:** PostgreSQL (a StatefulSet with a 1 GiB PVC) and Redis run in the `clouddeploy-deps` namespace from [deploy/kubernetes/dev-deps](../deploy/kubernetes/dev-deps). They're deliberately **outside the chart**: in production these are managed Azure services, and the chart only receives their URLs.

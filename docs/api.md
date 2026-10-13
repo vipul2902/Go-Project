@@ -128,4 +128,39 @@ Deployments are asynchronous: creating one returns `202 Accepted` with status `Q
 | `GET /deployments` | viewer | Filters: `project_id`, `environment`, `status`. Newest first, cursor pagination |
 | `GET /deployments/{id}` | viewer | Includes `config` (the snapshot), `duration_seconds` and `triggered_by` |
 | `POST /deployments/{id}/cancel` | developer (**admin for production**) | 409 `INVALID_TRANSITION` if the deployment has already finished. A running build or deploy is stopped within one heartbeat. |
-| `GET /deployments/{id}/logs` | viewer | Pipeline log lines, oldest first. `?after=<id>` (to tail) and `?limit` (1–1000, default 200). The response includes `next_after` and the current `status`. |
+| `GET /deployments/{id}/logs` | viewer | Pipeline log lines, oldest first. `?after=<id>` (to tail) and `?limit` (1–1000, default 200). The response includes `next_after` and the current `status`. **`?follow=true`** streams Server-Sent Events instead (see below). |
+
+## Monitoring
+
+Base path: `/projects/{id}/environments/{env}`. These endpoints read live state from Kubernetes. If the API instance has no cluster access, they return `503 MONITORING_UNAVAILABLE`, and a cluster error returns `502 CLUSTER_UNAVAILABLE`.
+
+| Method and path | Min. role | Notes |
+|---|---|---|
+| `GET /health` | viewer | `status` (`healthy`, `progressing`, `failing`, `degraded`, `down`, `scaled_to_zero` or `not_deployed`), replica counts, each pod's readiness, restarts and failure reason, the live release, the last successful deployment, and **drift** (`drift_reasons`) |
+| `GET /logs` | **developer** | Application output merged across pods in time order. Query: `tail` (1–1000, default 100), `since` (for example `15m`, at most 24h), `pod`, `previous=true` (the crashed container), and **`follow=true`** (SSE) |
+
+Application logs require the developer role because app output often contains sensitive data; health only needs viewer.
+
+### Drift
+`drift_reasons` compares the cluster with the last deployment that completed successfully:
+- `release`: the cluster runs a different release. A rollout is failing or in progress.
+- `replicas`, `image`, `resources`: out-of-band changes such as `kubectl scale`, `edit` or `set`. Quantities are compared by value, so `0.5` equals `500m`.
+
+The fix for drift is to redeploy, or to change the environment's configuration through the API.
+
+## Streaming (Server-Sent Events)
+
+`?follow=true` on deployment logs and application logs returns `text/event-stream`:
+
+```
+id: 4182
+event: log
+data: {"id":4182,"level":"info","message":"rollout complete: 2/2 replicas available",...}
+
+event: end
+data: {"status":"RUNNING","error_message":null}
+```
+
+- **Deployment logs** stream every line, then an `end` event with the final status once the deployment finishes. Each event `id` is the line ID, so a reconnecting `EventSource` resumes through `Last-Event-ID` without repeating lines.
+- **Application logs** stream `log` events, with `{pod, time, line}`, from the pods running when the stream started. After a rollout, reconnect to follow the new pods.
+- A comment heartbeat is sent every 15 seconds, and every stream is capped at 10 minutes; clients reconnect.

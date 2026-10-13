@@ -1,9 +1,11 @@
 package deployments
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/vipul2902/clouddeploy/internal/audit"
 	"github.com/vipul2902/clouddeploy/internal/auth"
@@ -196,6 +198,14 @@ func (h *Handler) logs(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteValidationError(w, r, errs)
 		return
 	}
+	if q.Get("follow") == "true" {
+		// Resume where an EventSource left off after a reconnect.
+		if v, err := strconv.ParseInt(r.Header.Get("Last-Event-ID"), 10, 64); err == nil && v > after {
+			after = v
+		}
+		h.followLogs(w, r, d.ID, after)
+		return
+	}
 	lines, err := h.svc.Logs(r.Context(), d.ID, after, limit)
 	if err != nil {
 		httpx.WriteInternalError(w, r, err)
@@ -213,6 +223,62 @@ func (h *Handler) logs(w http.ResponseWriter, r *http.Request) {
 		NextAfter int64     `json:"next_after"`
 		Status    Status    `json:"status"`
 	}{lines, next, d.Status})
+}
+
+// followLogs streams pipeline log lines as Server-Sent Events: one "log"
+// event per line (id = line id), periodic heartbeats, and a final "end"
+// event once the deployment reaches a terminal state and every line has
+// been sent. The worker writes lines to Postgres, so the stream polls it.
+func (h *Handler) followLogs(w http.ResponseWriter, r *http.Request, id string, after int64) {
+	sse, err := httpx.StartSSE(w)
+	if err != nil {
+		httpx.WriteInternalError(w, r, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), httpx.MaxStreamDuration)
+	defer cancel()
+	poll := time.NewTicker(time.Second)
+	defer poll.Stop()
+	lastWrite := time.Now()
+	for {
+		// Read status BEFORE lines: if it is terminal now, every line the
+		// worker wrote is already committed, so draining them is complete.
+		d, err := h.svc.Get(ctx, id)
+		if err != nil {
+			return
+		}
+		for {
+			lines, err := h.svc.Logs(ctx, id, after, 500)
+			if err != nil {
+				return
+			}
+			for _, l := range lines {
+				if sse.Event("log", strconv.FormatInt(l.ID, 10), l) != nil {
+					return // client went away
+				}
+				after = l.ID
+				lastWrite = time.Now()
+			}
+			if len(lines) < 500 {
+				break
+			}
+		}
+		if d.Status.Terminal() {
+			_ = sse.Event("end", "", map[string]any{"status": d.Status, "error_message": d.ErrorMessage})
+			return
+		}
+		if time.Since(lastWrite) > 15*time.Second {
+			if sse.Heartbeat() != nil {
+				return
+			}
+			lastWrite = time.Now()
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-poll.C:
+		}
+	}
 }
 
 func writeErr(w http.ResponseWriter, r *http.Request, err error) {
