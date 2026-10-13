@@ -66,6 +66,7 @@ GET /api/v1/projects?limit=20&sort=name&cursor=eyJzIjoibmFtZSIs...
 | `POST /organizations/{orgID}/members` | admin | `email, role`. The user must already be registered. 404 `USER_NOT_FOUND`, 409 `ALREADY_MEMBER` |
 | `PATCH /organizations/{orgID}/members/{userID}` | admin | `role`. 409 `LAST_ADMIN` |
 | `DELETE /organizations/{orgID}/members/{userID}` | admin | 409 `LAST_ADMIN` |
+| `GET /organizations/{orgID}/audit` | admin | The audit trail, newest first. Optional filters: `action` and `resource_type`. Paginated. |
 
 ## Projects
 
@@ -75,7 +76,7 @@ GET /api/v1/projects?limit=20&sort=name&cursor=eyJzIjoibmFtZSIs...
 | `POST /projects` | developer | `organization_id, name, repository_url`, optional `default_branch` (default `main`). Returns `Location` and `ETag`. |
 | `GET /projects/{id}` | viewer | Returns `ETag` |
 | `PATCH /projects/{id}` | developer | Partial update of `name`, `repository_url` and `default_branch`. Optional `If-Match`. |
-| `DELETE /projects/{id}` | admin | Soft delete. History is kept and the name becomes reusable. |
+| `DELETE /projects/{id}` | admin | Soft delete. History is kept and the name becomes reusable. 409 `DEPLOYMENT_IN_PROGRESS` while a deployment is active. |
 
 Validation rules:
 - `name` must be a DNS-1123 label (lowercase letters, digits and `-`, up to 63 characters), because it becomes a Kubernetes resource name.
@@ -114,3 +115,14 @@ Rules for variables:
 - Keys are `UPPER_SNAKE_CASE`. The `CLOUDDEPLOY_` and `KUBERNETES_` prefixes are reserved.
 - Values are limited to 32 KiB, and an environment can hold at most 100 variables.
 - Keys that look like credentials (`*PASSWORD*`, `*SECRET*`, `*TOKEN*`, `*API_KEY*`, `*PRIVATE_KEY*`, `*CREDENTIAL*`, `*ACCESS_KEY*`) **must** use `secret_ref`.
+
+## Deployments
+
+Deployments are asynchronous: creating one returns `202 Accepted` with status `QUEUED`. The state machine and the idempotency guarantees are described in [deployment.md](deployment.md).
+
+| Method and path | Min. role | Notes |
+|---|---|---|
+| `POST /deployments` | developer (**admin for production**) | Body: `project_id, environment, commit_sha`. Optional `Idempotency-Key` header. Returns 202 when created and 200 with `Idempotent-Replayed: true` on a retry. 409 `DEPLOYMENT_IN_PROGRESS` includes `details.active_deployment_id`. 422 `IDEMPOTENCY_KEY_REUSED` |
+| `GET /deployments` | viewer | Filters: `project_id`, `environment`, `status`. Newest first, cursor pagination |
+| `GET /deployments/{id}` | viewer | Includes `config` (the snapshot), `duration_seconds` and `triggered_by` |
+| `POST /deployments/{id}/cancel` | developer (**admin for production**) | 409 `INVALID_TRANSITION` if the deployment has already finished |

@@ -126,7 +126,7 @@ func TestConcurrentDemotionKeepsOneAdmin(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_, errs[i] = svc.UpdateRole(context.Background(), a.OrgID, target, auth.RoleViewer)
+				_, errs[i] = svc.UpdateRole(context.Background(), a.ID, a.OrgID, target, auth.RoleViewer)
 			}()
 		}
 		wg.Wait()

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vipul2902/clouddeploy/internal/audit"
 	"github.com/vipul2902/clouddeploy/internal/auth"
 	"github.com/vipul2902/clouddeploy/internal/httpx"
 )
@@ -57,14 +58,21 @@ func (s *Service) Create(ctx context.Context, userID string, in CreateInput) (Pr
 		return Project{}, err
 	}
 
-	rows, err := s.pool.Query(ctx, `
-		INSERT INTO projects AS p (organization_id, name, repository_url, default_branch)
-		VALUES ($1, $2, $3, $4) RETURNING `+projectColumns,
-		in.OrganizationID, in.Name, in.RepositoryURL, in.DefaultBranch)
-	if err != nil {
-		return Project{}, err
-	}
-	p, err := pgx.CollectExactlyOneRow(rows, scanProject)
+	var p Project
+	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			INSERT INTO projects AS p (organization_id, name, repository_url, default_branch)
+			VALUES ($1, $2, $3, $4) RETURNING `+projectColumns,
+			in.OrganizationID, in.Name, in.RepositoryURL, in.DefaultBranch)
+		if err != nil {
+			return err
+		}
+		if p, err = pgx.CollectExactlyOneRow(rows, scanProject); err != nil {
+			return err
+		}
+		return audit.Record(ctx, tx, audit.Actor{UserID: userID, OrganizationID: p.OrganizationID},
+			"project.created", "project", p.ID, map[string]any{"name": p.Name, "repository_url": p.RepositoryURL})
+	})
 	if isUnique(err, "projects_org_name_key") {
 		return Project{}, ErrNameTaken
 	}
@@ -182,7 +190,7 @@ var errInvalidCursor = errors.New("invalid cursor")
 // the update only succeeds when the project is unchanged since the client
 // read it (optimistic concurrency); otherwise ErrPreconditionFailed.
 func (s *Service) Update(ctx context.Context, userID, id string, in UpdateInput, ifMatch *time.Time) (Project, error) {
-	_, role, err := s.getWithRole(ctx, userID, id)
+	before, role, err := s.getWithRole(ctx, userID, id)
 	if err != nil {
 		return Project{}, err
 	}
@@ -190,18 +198,25 @@ func (s *Service) Update(ctx context.Context, userID, id string, in UpdateInput,
 		return Project{}, err
 	}
 
-	rows, err := s.pool.Query(ctx, `
-		UPDATE projects AS p SET
-			name           = COALESCE($3, name),
-			repository_url = COALESCE($4, repository_url),
-			default_branch = COALESCE($5, default_branch)
-		WHERE id = $1 AND deleted_at IS NULL
-		  AND ($2::timestamptz IS NULL OR updated_at = $2)
-		RETURNING `+projectColumns, id, ifMatch, in.Name, in.RepositoryURL, in.DefaultBranch)
-	if err != nil {
-		return Project{}, err
-	}
-	p, err := pgx.CollectExactlyOneRow(rows, scanProject)
+	var p Project
+	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			UPDATE projects AS p SET
+				name           = COALESCE($3, name),
+				repository_url = COALESCE($4, repository_url),
+				default_branch = COALESCE($5, default_branch)
+			WHERE id = $1 AND deleted_at IS NULL
+			  AND ($2::timestamptz IS NULL OR updated_at = $2)
+			RETURNING `+projectColumns, id, ifMatch, in.Name, in.RepositoryURL, in.DefaultBranch)
+		if err != nil {
+			return err
+		}
+		if p, err = pgx.CollectExactlyOneRow(rows, scanProject); err != nil {
+			return err
+		}
+		return audit.Record(ctx, tx, audit.Actor{UserID: userID, OrganizationID: p.OrganizationID},
+			"project.updated", "project", p.ID, changes(before, p))
+	})
 	switch {
 	case errors.Is(err, pgx.ErrNoRows) && ifMatch != nil:
 		return Project{}, ErrPreconditionFailed
@@ -211,6 +226,21 @@ func (s *Service) Update(ctx context.Context, userID, id string, in UpdateInput,
 		return Project{}, ErrNameTaken
 	}
 	return p, err
+}
+
+// changes describes which fields an update modified, as {field: {from, to}}.
+func changes(before, after Project) map[string]any {
+	out := map[string]any{}
+	for field, pair := range map[string][2]string{
+		"name":           {before.Name, after.Name},
+		"repository_url": {before.RepositoryURL, after.RepositoryURL},
+		"default_branch": {before.DefaultBranch, after.DefaultBranch},
+	} {
+		if pair[0] != pair[1] {
+			out[field] = map[string]string{"from": pair[0], "to": pair[1]}
+		}
+	}
+	return out
 }
 
 // Delete soft-deletes a project (admin only). Deployment history and audit
@@ -223,14 +253,33 @@ func (s *Service) Delete(ctx context.Context, userID, id string) error {
 	if err := checkRole(role, auth.RoleAdmin); err != nil {
 		return err
 	}
-	tag, err := s.pool.Exec(ctx, `UPDATE projects SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL`, id)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
+	// Lock the project row: deployment creation holds FOR SHARE on it, so a
+	// deployment cannot be created between our check and the delete.
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var p Project
+		rows, err := tx.Query(ctx, `SELECT `+projectColumns+` FROM projects p WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, id)
+		if err != nil {
+			return err
+		}
+		if p, err = pgx.CollectExactlyOneRow(rows, scanProject); errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		} else if err != nil {
+			return err
+		}
+		var active bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM deployments WHERE project_id = $1
+			AND status IN ('QUEUED', 'BUILDING', 'DEPLOYING'))`, id).Scan(&active); err != nil {
+			return err
+		}
+		if active {
+			return ErrActiveDeployment
+		}
+		if _, err := tx.Exec(ctx, `UPDATE projects SET deleted_at = now() WHERE id = $1`, id); err != nil {
+			return err
+		}
+		return audit.Record(ctx, tx, audit.Actor{UserID: userID, OrganizationID: p.OrganizationID},
+			"project.deleted", "project", id, map[string]any{"name": p.Name})
+	})
 }
 
 // escapeLike escapes LIKE wildcards so user input matches literally.

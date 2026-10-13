@@ -11,7 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vipul2902/clouddeploy/internal/audit"
 	"github.com/vipul2902/clouddeploy/internal/auth"
+	"github.com/vipul2902/clouddeploy/internal/httpx"
 )
 
 // Domain errors.
@@ -60,9 +62,12 @@ func (s *Service) Create(ctx context.Context, userID, name, slug string) (Organi
 			name, slug).Scan(&o.ID, &o.CreatedAt); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx,
-			`INSERT INTO organization_members (organization_id, user_id, role) VALUES ($1, $2, 'admin')`, o.ID, userID)
-		return err
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO organization_members (organization_id, user_id, role) VALUES ($1, $2, 'admin')`, o.ID, userID); err != nil {
+			return err
+		}
+		return audit.Record(ctx, tx, audit.Actor{UserID: userID, OrganizationID: o.ID},
+			"organization.created", "organization", o.ID, map[string]any{"name": name, "slug": slug})
 	})
 	if isUnique(err, "organizations_slug_key") {
 		return Organization{}, ErrSlugTaken
@@ -115,19 +120,26 @@ func (s *Service) Members(ctx context.Context, orgID string) ([]Member, error) {
 }
 
 // AddMember adds an existing user (by email) to the organization.
-func (s *Service) AddMember(ctx context.Context, orgID, email string, role auth.Role) (Member, error) {
-	rows, err := s.pool.Query(ctx, `
-		WITH ins AS (
-			INSERT INTO organization_members (organization_id, user_id, role)
-			SELECT $1, id, $3 FROM users WHERE email = $2
-			RETURNING user_id, role, created_at
-		)
-		SELECT u.id, u.email, u.name, ins.role, ins.created_at FROM ins JOIN users u ON u.id = ins.user_id`,
-		orgID, email, role)
-	if err != nil {
-		return Member{}, err
-	}
-	m, err := pgx.CollectExactlyOneRow(rows, scanMember)
+func (s *Service) AddMember(ctx context.Context, actorID, orgID, email string, role auth.Role) (Member, error) {
+	var m Member
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			WITH ins AS (
+				INSERT INTO organization_members (organization_id, user_id, role)
+				SELECT $1, id, $3 FROM users WHERE email = $2
+				RETURNING user_id, role, created_at
+			)
+			SELECT u.id, u.email, u.name, ins.role, ins.created_at FROM ins JOIN users u ON u.id = ins.user_id`,
+			orgID, email, role)
+		if err != nil {
+			return err
+		}
+		if m, err = pgx.CollectExactlyOneRow(rows, scanMember); err != nil {
+			return err
+		}
+		return audit.Record(ctx, tx, audit.Actor{UserID: actorID, OrganizationID: orgID},
+			"member.added", "user", m.UserID, map[string]any{"email": m.Email, "role": m.Role})
+	})
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Member{}, ErrUserNotFound
@@ -138,7 +150,7 @@ func (s *Service) AddMember(ctx context.Context, orgID, email string, role auth.
 }
 
 // UpdateRole changes a member's role, refusing to demote the last admin.
-func (s *Service) UpdateRole(ctx context.Context, orgID, userID string, role auth.Role) (Member, error) {
+func (s *Service) UpdateRole(ctx context.Context, actorID, orgID, userID string, role auth.Role) (Member, error) {
 	var m Member
 	err := s.withAdminGuard(ctx, orgID, userID, role != auth.RoleAdmin, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
@@ -151,18 +163,28 @@ func (s *Service) UpdateRole(ctx context.Context, orgID, userID string, role aut
 		if err != nil {
 			return err
 		}
-		m, err = pgx.CollectExactlyOneRow(rows, scanMember)
-		return err
+		if m, err = pgx.CollectExactlyOneRow(rows, scanMember); err != nil {
+			return err
+		}
+		return audit.Record(ctx, tx, audit.Actor{UserID: actorID, OrganizationID: orgID},
+			"member.role_changed", "user", userID, map[string]any{"email": m.Email, "role": role})
 	})
 	return m, err
 }
 
 // RemoveMember removes a member, refusing to remove the last admin.
-func (s *Service) RemoveMember(ctx context.Context, orgID, userID string) error {
+func (s *Service) RemoveMember(ctx context.Context, actorID, orgID, userID string) error {
 	return s.withAdminGuard(ctx, orgID, userID, true, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `DELETE FROM organization_members WHERE organization_id = $1 AND user_id = $2`, orgID, userID)
-		return err
+		if _, err := tx.Exec(ctx, `DELETE FROM organization_members WHERE organization_id = $1 AND user_id = $2`, orgID, userID); err != nil {
+			return err
+		}
+		return audit.Record(ctx, tx, audit.Actor{UserID: actorID, OrganizationID: orgID}, "member.removed", "user", userID, nil)
 	})
+}
+
+// AuditLog returns one page of the organization's audit trail.
+func (s *Service) AuditLog(ctx context.Context, orgID string, f audit.Filter, page httpx.Page) ([]audit.Entry, *string, error) {
+	return audit.List(ctx, s.pool, orgID, f, page)
 }
 
 // withAdminGuard runs change in a transaction that first locks the

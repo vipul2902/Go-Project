@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/vipul2902/clouddeploy/internal/audit"
 	"github.com/vipul2902/clouddeploy/internal/auth"
 	"github.com/vipul2902/clouddeploy/internal/httpx"
 	"github.com/vipul2902/clouddeploy/internal/slug"
@@ -29,6 +30,7 @@ func (h *Handler) Routes(mux *http.ServeMux, requireAuth func(http.Handler) http
 	handle("POST /api/v1/organizations/{orgID}/members", h.addMember)
 	handle("PATCH /api/v1/organizations/{orgID}/members/{userID}", h.updateMember)
 	handle("DELETE /api/v1/organizations/{orgID}/members/{userID}", h.removeMember)
+	handle("GET /api/v1/organizations/{orgID}/audit", h.auditLog)
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
@@ -109,7 +111,7 @@ func (h *Handler) addMember(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteValidationError(w, r, map[string]string{"role": "must be admin, developer or viewer"})
 		return
 	}
-	m, err := h.svc.AddMember(r.Context(), o.ID, strings.ToLower(strings.TrimSpace(in.Email)), in.Role)
+	m, err := h.svc.AddMember(r.Context(), auth.UserIDFrom(r.Context()), o.ID, strings.ToLower(strings.TrimSpace(in.Email)), in.Role)
 	if err != nil {
 		h.writeErr(w, r, err)
 		return
@@ -136,7 +138,7 @@ func (h *Handler) updateMember(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteValidationError(w, r, map[string]string{"role": "must be admin, developer or viewer"})
 		return
 	}
-	m, err := h.svc.UpdateRole(r.Context(), o.ID, userID, in.Role)
+	m, err := h.svc.UpdateRole(r.Context(), auth.UserIDFrom(r.Context()), o.ID, userID, in.Role)
 	if err != nil {
 		h.writeErr(w, r, err)
 		return
@@ -153,11 +155,36 @@ func (h *Handler) removeMember(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := h.svc.RemoveMember(r.Context(), o.ID, userID); err != nil {
+	if err := h.svc.RemoveMember(r.Context(), auth.UserIDFrom(r.Context()), o.ID, userID); err != nil {
 		h.writeErr(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// auditLog lists the organization's audit trail (admin only), newest first.
+// Optional filters: ?action=deployment.created&resource_type=project.
+func (h *Handler) auditLog(w http.ResponseWriter, r *http.Request) {
+	o, ok := h.authorize(w, r, auth.RoleAdmin)
+	if !ok {
+		return
+	}
+	page, errs := httpx.ParsePage(r)
+	if len(errs) > 0 {
+		httpx.WriteValidationError(w, r, errs)
+		return
+	}
+	q := r.URL.Query()
+	entries, next, err := h.svc.AuditLog(r.Context(), o.ID, audit.Filter{Action: q.Get("action"), ResourceType: q.Get("resource_type")}, page)
+	if errors.Is(err, audit.ErrInvalidCursor) {
+		httpx.WriteValidationError(w, r, map[string]string{"cursor": "invalid"})
+		return
+	}
+	if err != nil {
+		httpx.WriteInternalError(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, httpx.List[audit.Entry]{Data: entries, NextCursor: next})
 }
 
 // authorize loads the {orgID} organization for the caller and checks their

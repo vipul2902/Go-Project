@@ -18,6 +18,7 @@ var (
 	ErrForbidden          = errors.New("forbidden")
 	ErrNameTaken          = errors.New("project name already used in this organization")
 	ErrPreconditionFailed = errors.New("project was modified by someone else")
+	ErrActiveDeployment   = errors.New("project has a deployment in progress")
 )
 
 // Project is an application registered with CloudDeploy.

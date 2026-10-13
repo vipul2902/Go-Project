@@ -56,6 +56,11 @@ func WriteError(w http.ResponseWriter, r *http.Request, status int, code, messag
 	writeError(w, r, status, ErrorDetail{Code: code, Message: message})
 }
 
+// WriteErrorDetails writes an error with machine-readable details.
+func WriteErrorDetails(w http.ResponseWriter, r *http.Request, status int, code, message string, details map[string]string) {
+	writeError(w, r, status, ErrorDetail{Code: code, Message: message, Details: details})
+}
+
 // WriteValidationError writes a 422 with per-field problems.
 func WriteValidationError(w http.ResponseWriter, r *http.Request, details map[string]string) {
 	writeError(w, r, http.StatusUnprocessableEntity, ErrorDetail{
