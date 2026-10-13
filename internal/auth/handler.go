@@ -87,8 +87,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		httpx.WriteInternalError(w, r, err)
 	default:
-		noStore(w)
-		httpx.WriteJSON(w, http.StatusOK, authResponse{User: u, TokenPair: pair})
+		h.writeTokens(w, r, http.StatusOK, u, pair)
 	}
 }
 
@@ -100,11 +99,11 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 	if !h.limiter.Check(w, r, RefreshPerIP, ipKey(r), httpx.TooManyRequests) {
 		return
 	}
-	var in refreshRequest
-	if !httpx.DecodeJSON(w, r, &in) {
+	token, ok := refreshTokenFrom(w, r)
+	if !ok {
 		return
 	}
-	pair, err := h.svc.Refresh(r.Context(), in.RefreshToken)
+	pair, err := h.svc.Refresh(r.Context(), token)
 	switch {
 	case errors.Is(err, ErrInvalidRefresh), errors.Is(err, ErrRefreshReuse):
 		// Both look identical to the client; reuse is logged server-side.
@@ -115,21 +114,74 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		httpx.WriteInternalError(w, r, err)
 	default:
-		noStore(w)
-		httpx.WriteJSON(w, http.StatusOK, pair)
+		h.writeTokens(w, r, http.StatusOK, User{}, pair)
 	}
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
-	var in refreshRequest
-	if !httpx.DecodeJSON(w, r, &in) {
+	token, ok := refreshTokenFrom(w, r)
+	if !ok {
 		return
 	}
-	if err := h.svc.Logout(r.Context(), in.RefreshToken); err != nil {
+	if err := h.svc.Logout(r.Context(), token); err != nil {
 		httpx.WriteInternalError(w, r, err)
 		return
 	}
+	if cookieMode(r) {
+		http.SetCookie(w, &http.Cookie{Name: refreshCookie, Path: refreshCookiePath, MaxAge: -1,
+			HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Browser token handling ("cookie mode", opted into with X-Auth-Mode: cookie):
+// the refresh token travels only in an HttpOnly cookie that JavaScript can
+// never read (so XSS cannot steal it), scoped to the auth endpoints, and
+// SameSite=Strict. Requiring the custom header for cookie-based refresh and
+// logout is the CSRF defense: cross-site forms cannot send custom headers,
+// and the API never enables CORS. Non-browser clients keep the JSON flow.
+const (
+	HeaderAuthMode    = "X-Auth-Mode"
+	refreshCookie     = "cd_refresh"
+	refreshCookiePath = "/api/v1/auth"
+)
+
+func cookieMode(r *http.Request) bool { return r.Header.Get(HeaderAuthMode) == "cookie" }
+
+// refreshTokenFrom reads the refresh token from the cookie (cookie mode) or
+// the JSON body, writing an error response and returning false if absent.
+func refreshTokenFrom(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if cookieMode(r) {
+		c, err := r.Cookie(refreshCookie)
+		if err != nil || c.Value == "" {
+			httpx.WriteError(w, r, http.StatusUnauthorized, "INVALID_REFRESH_TOKEN", "refresh token is invalid or expired")
+			return "", false
+		}
+		return c.Value, true
+	}
+	var in refreshRequest
+	if !httpx.DecodeJSON(w, r, &in) {
+		return "", false
+	}
+	return in.RefreshToken, true
+}
+
+// writeTokens returns a token pair. In cookie mode the refresh token is set
+// as a cookie and omitted from the body.
+func (h *Handler) writeTokens(w http.ResponseWriter, r *http.Request, status int, u User, pair TokenPair) {
+	noStore(w)
+	if cookieMode(r) {
+		http.SetCookie(w, &http.Cookie{
+			Name: refreshCookie, Value: pair.RefreshToken, Path: refreshCookiePath,
+			Expires: pair.RefreshExpiresAt, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
+		})
+		pair.RefreshToken = ""
+	}
+	if u.ID == "" {
+		httpx.WriteJSON(w, status, pair)
+		return
+	}
+	httpx.WriteJSON(w, status, authResponse{User: u, TokenPair: pair})
 }
 
 func (h *Handler) me(w http.ResponseWriter, r *http.Request) {

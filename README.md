@@ -2,7 +2,17 @@
 
 A cloud-native deployment platform: register an application, define its environments, build it, deploy it to Kubernetes, and track status, health, logs and history — with Azure infrastructure provisioned by Terraform.
 
-> **Status:** Phase 13 (rollback) complete. Roll back to any successful release, or automatically when a rollout fails. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
+> **Status:** Phase 14 (React dashboard) complete. A web UI for the whole platform, served by nginx alongside the API in Kubernetes. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
+
+## Screenshots
+
+| Dashboard | Project overview (live health, deploy) |
+|---|---|
+| ![Dashboard](docs/screenshots/dashboard.png) | ![Project](docs/screenshots/project-overview.png) |
+| **Deployment (timeline, live pipeline log)** | **Rollback confirmation** |
+| ![Deployment](docs/screenshots/deployment.png) | ![Rollback](docs/screenshots/rollback-confirm.png) |
+
+More screenshots are in [docs/screenshots](docs/screenshots). The dashboard design is described in [docs/frontend.md](docs/frontend.md).
 
 ## Architecture (target)
 
@@ -20,6 +30,7 @@ It is a **modular monolith**: one deployable Go binary with clear internal packa
 | Area | Choice |
 |---|---|
 | API | Go 1.27, standard library `net/http` routing, `log/slog` JSON logging |
+| Dashboard | React 19, TypeScript, Vite, TanStack Query, served by nginx |
 | Data | PostgreSQL, Redis *(Phase 2 / 7)* |
 | Runtime | Docker (distroless, non-root), Kubernetes + Helm *(Phase 10–11)* |
 | Cloud | Terraform, Azure AKS/ACR *(Phase 17–18)* |
@@ -50,7 +61,8 @@ curl localhost:8080/readyz
 | `make docker-up` / `make docker-down` | Full stack in containers: Postgres, then migrate job, then API |
 | `make k8s-up` / `make k8s-down` / `make test-k8s` | Local Kubernetes (Colima k3s) and the deployer tests against it |
 | `make helm-lint` | Lint the Helm chart with every values file and check its safety guards |
-| `make k8s-deploy` / `make k8s-forward` / `make k8s-uninstall` | Run CloudDeploy itself in the cluster with Helm (dev values) |
+| `make k8s-deploy` / `make k8s-forward` / `make k8s-uninstall` | Run CloudDeploy itself in the cluster with Helm (dev values). `k8s-forward` opens the dashboard on http://localhost:8080. |
+| `make web-dev` / `make web-check` | Dashboard dev server; type-check, lint, test and build the dashboard |
 
 ## Configuration
 
@@ -119,11 +131,12 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 
 ## Roadmap
 
-0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s ✅ · 11 Helm ✅ · 12 monitoring/logs ✅ · 13 rollback ✅ · 14 dashboard · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
+0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s ✅ · 11 Helm ✅ · 12 monitoring/logs ✅ · 13 rollback ✅ · 14 dashboard ✅ · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
 
 ## Documentation
 
 - [API reference](docs/api.md)
+- [Dashboard](docs/frontend.md)
 - [Architecture decisions](docs/adr/)
 - [Local development](docs/local-development.md)
 - [Deployment domain: state machine, idempotency, audit](docs/deployment.md)

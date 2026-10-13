@@ -36,6 +36,14 @@ test-integration: ## Integration tests: compose Postgres + Redis, local git + Do
 test-k8s: ## Kubernetes deployer tests against the local cluster (needs make k8s-up)
 	KUBE_CONTEXT=$${KUBE_CONTEXT:-colima} go test -count=1 -tags k8s -timeout 10m ./internal/kube/
 
+.PHONY: web-dev
+web-dev: ## Dashboard dev server on :5173 (proxies /api to the API on :8080)
+	cd web && npm run dev
+
+.PHONY: web-check
+web-check: ## Type-check, lint, test and build the dashboard
+	cd web && npm run typecheck && npm run lint && npm test && npm run build
+
 .PHONY: cover
 cover: ## Run tests with coverage report
 	go test -race -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | tail -1
@@ -99,6 +107,8 @@ k8s-images: ## Build the app and dev worker-builder images, tagged by content di
 		docker tag clouddeploy:dev clouddeploy:$$tag && echo $$tag > .k8s-image-tag && echo "app image: clouddeploy:$$tag"
 	@id=$$(docker build -q --target worker-builder -t clouddeploy-worker-builder:dev .) && tag=dev-$$(echo $$id | cut -c8-19) && \
 		docker tag clouddeploy-worker-builder:dev clouddeploy-worker-builder:$$tag && echo $$tag > .k8s-builder-tag && echo "builder image: clouddeploy-worker-builder:$$tag"
+	@id=$$(docker build -q -t clouddeploy-web:dev web/) && tag=dev-$$(echo $$id | cut -c8-19) && \
+		docker tag clouddeploy-web:dev clouddeploy-web:$$tag && echo $$tag > .k8s-web-tag && echo "web image: clouddeploy-web:$$tag"
 
 .PHONY: k8s-deps
 k8s-deps: ## DEV ONLY: Postgres + Redis inside the cluster (production uses managed services)
@@ -127,11 +137,11 @@ k8s-secrets: ## DEV ONLY: create the app Secret from .env (values never on the c
 k8s-deploy: k8s-images k8s-deps k8s-secrets ## Install/upgrade CloudDeploy in the local cluster (dev values)
 	helm upgrade --install clouddeploy $(CHART) --kube-context $(KCTX) -n $(KNS) \
 		-f $(CHART)/values-dev.yaml --set image.tag=$$(cat .k8s-image-tag) \
-		--set dev.builderImage.tag=$$(cat .k8s-builder-tag) --wait --timeout 5m
+		--set dev.builderImage.tag=$$(cat .k8s-builder-tag) --set web.image.tag=$$(cat .k8s-web-tag) --wait --timeout 5m
 
 .PHONY: k8s-forward
-k8s-forward: ## Port-forward the in-cluster API to localhost:8080
-	kubectl --context $(KCTX) -n $(KNS) port-forward svc/clouddeploy-api 8080:80
+k8s-forward: ## Open the in-cluster dashboard (and /api) on http://localhost:8080
+	kubectl --context $(KCTX) -n $(KNS) port-forward svc/clouddeploy-web 8080:80
 
 .PHONY: k8s-uninstall
 k8s-uninstall: ## Remove the CloudDeploy release (keeps the dev database)

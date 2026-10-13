@@ -5,6 +5,9 @@ image:
 config:
   appEnv: development
   logLevel: debug
+  # The web pods (nginx) proxy /api: trust X-Forwarded-For from the k3s pod
+  # network so rate limits and audit see the real client IP.
+  trustedProxyCIDRs: "10.42.0.0/16"
 api:
   replicas: 1
   pdb:
@@ -18,6 +21,8 @@ worker:
   resources:
     requests: {cpu: 20m, memory: 32Mi}
     limits: {cpu: 500m, memory: 192Mi}
+web:
+  replicas: 1
 seed:
   enabled: true
 dev:

@@ -50,6 +50,16 @@ worker:
     requests: {cpu: 50m, memory: 64Mi}
     limits: {cpu: 500m, memory: 256Mi}
 
+web:
+  enabled: true
+  replicas: 2
+  image:
+    repository: clouddeploy-web
+    tag: ""              # defaults to image.tag
+  resources:
+    requests: {cpu: 10m, memory: 16Mi}
+    limits: {cpu: 200m, memory: 64Mi}
+
 migrations:
   enabled: true          # Helm hook Job before install/upgrade
 

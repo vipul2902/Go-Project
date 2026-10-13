@@ -21,5 +21,6 @@ spec:
           - path: /
             pathType: Prefix
             backend:
-              service: {name: {{ $fullname }}-api, port: {name: http}}
+              # The web pods serve the dashboard and proxy /api to the API.
+              service: {name: {{ if .Values.web.enabled }}{{ $fullname }}-web{{ else }}{{ $fullname }}-api{{ end }}, port: {name: http}}
 {{- end }}

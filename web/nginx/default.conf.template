@@ -1,0 +1,38 @@
+# Serves the dashboard and proxies /api to the CloudDeploy API, so the
+# browser sees one origin: no CORS, and the SameSite=Strict cookie works.
+# ${API_UPSTREAM} is substituted at container start (nginx image templates).
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    server_tokens off;
+
+    location /api/ {
+        proxy_pass http://${API_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Server-Sent Events: deliver each event immediately, keep long streams.
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 15m;
+        client_max_body_size 1m;
+    }
+
+    # Fingerprinted build assets never change: cache them for a year.
+    location /assets/ {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
+    # SPA routing: unknown paths serve index.html; never cache it, so a new
+    # release is picked up on the next load.
+    location / {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "no-cache" always;
+        try_files $uri /index.html;
+    }
+}

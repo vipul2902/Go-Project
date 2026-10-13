@@ -1,0 +1,71 @@
+{{- if .Values.web.enabled -}}
+{{- $fullname := include "clouddeploy.fullname" . -}}
+# The dashboard: static files plus an /api reverse proxy to the API service,
+# so the browser talks to a single origin.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-web
+  labels:
+    {{- include "clouddeploy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  replicas: {{ .Values.web.replicas }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels: {{- include "clouddeploy.selector" (dict "root" . "component" "web") | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  template:
+    metadata:
+      labels:
+        {{- include "clouddeploy.labels" . | nindent 8 }}
+        app.kubernetes.io/component: web
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: web
+          image: {{ .Values.web.image.repository }}:{{ .Values.web.image.tag | default .Values.image.tag | default .Chart.AppVersion }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - {name: API_UPSTREAM, value: "{{ $fullname }}-api:{{ .Values.api.service.port }}"}
+          ports:
+            - {name: http, containerPort: 8080, protocol: TCP}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          lifecycle:
+            preStop:
+              sleep: {seconds: 5}
+          resources: {{- toYaml .Values.web.resources | nindent 12 }}
+          securityContext: {{- include "clouddeploy.containerSecurityContext" . | nindent 12 }}
+          # Read-only root filesystem: nginx writes only its rendered config
+          # and temp files, into these emptyDirs.
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: conf, mountPath: /etc/nginx/conf.d}
+      volumes:
+        - {name: tmp, emptyDir: {sizeLimit: 64Mi}}
+        - {name: conf, emptyDir: {sizeLimit: 1Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-web
+  labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "clouddeploy.selector" (dict "root" . "component" "web") | nindent 4 }}
+  ports:
+    - {name: http, port: 80, targetPort: http, protocol: TCP}
+{{- end }}

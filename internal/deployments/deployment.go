@@ -30,6 +30,7 @@ func (e *InProgressError) Error() string {
 type Deployment struct {
 	ID              string     `json:"id"`
 	ProjectID       string     `json:"project_id"`
+	ProjectName     string     `json:"project_name"`
 	EnvironmentID   string     `json:"environment_id"`
 	Environment     string     `json:"environment"`
 	CommitSHA       string     `json:"commit_sha"`
