@@ -17,7 +17,7 @@ The reference machine is an M1 MacBook Air with 8 GB RAM, running Colima with 4 
 | Tool | Status |
 |---|---|
 | Go | 1.27.1 (Homebrew) |
-| Docker / Colima | Colima 0.10.3, docker runtime, aarch64 |
+| Docker / Colima | Colima 0.10.3, docker runtime, aarch64, 30 GB disk |
 | Docker Compose plugin | 5.6.0 (Homebrew). The symlink was repaired on 2026-10-09; it had pointed to a removed Docker Desktop install. |
 | Native PostgreSQL | Versions 16 and 17 are installed under `/Library/PostgreSQL` and occupy ports **5432 and 5433**. Our container uses **15432**. |
 | Native Redis | A Homebrew `redis` service occupies **6379**. Our container uses **16379**. If you don't need the native one, `brew services stop redis` saves a little RAM. |
@@ -40,7 +40,13 @@ When the API receives SIGTERM, it stops accepting new connections and waits up t
 
 ## Colima disk space
 
-Docker's images and containers live on Colima's **data disk** (`/mnt/lima-colima`), not on the VM's root disk. On the reference machine that disk is 5.9 GB, and in Phase 8 it filled up, which broke image builds (`no space left on device`). To check usage:
+Docker's images and containers live on Colima's **data disk** (`/mnt/lima-colima`), not on the VM's root disk. On the reference machine that disk was 5.9 GB and filled up in Phase 8, which broke image builds (`no space left on device`).
+
+It was fixed on 2026-10-13:
+- Two unrelated images were removed: `azure-sql-edge` (its data volumes, `mssql-data` among them, were kept) and `dotnet/sdk:8.0`.
+- Colima was restarted with `--disk 30`, and the data disk grew to 30 GB.
+
+To check usage:
 
 ```bash
 docker system df                                   # what Docker is using
