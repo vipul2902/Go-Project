@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/vipul2902/clouddeploy/internal/metrics"
 )
 
 // Rule is a named limit: at most Limit requests per Period, with bursts of
@@ -58,8 +60,17 @@ var gcra = redis.NewScript(gcraSource)
 
 // Limiter checks rules against Redis.
 type Limiter struct {
-	rdb    *redis.Client
-	logger *slog.Logger
+	rdb     *redis.Client
+	logger  *slog.Logger
+	metrics *metrics.RateLimit
+}
+
+// WithMetrics records every decision (allowed, denied, fail_open).
+func (l *Limiter) WithMetrics(m *metrics.RateLimit) *Limiter {
+	if l != nil {
+		l.metrics = m
+	}
+	return l
 }
 
 // New returns a Limiter. A nil client disables limiting (every request is
@@ -108,6 +119,7 @@ func (l *Limiter) Check(w http.ResponseWriter, r *http.Request, rule Rule, key s
 	res, err := l.Allow(r.Context(), rule, key)
 	if err != nil {
 		l.logger.WarnContext(r.Context(), "rate limiter unavailable; failing open", "rule", rule.Name, "err", err)
+		l.decision(rule, "fail_open")
 		return true
 	}
 	h := w.Header()
@@ -116,10 +128,18 @@ func (l *Limiter) Check(w http.ResponseWriter, r *http.Request, rule Rule, key s
 	h.Set("RateLimit-Reset", strconv.Itoa(ceilSeconds(res.ResetAfter)))
 	if !res.Allowed {
 		h.Set("Retry-After", strconv.Itoa(ceilSeconds(res.RetryAfter)))
+		l.decision(rule, "denied")
 		deny(w, r)
 		return false
 	}
+	l.decision(rule, "allowed")
 	return true
+}
+
+func (l *Limiter) decision(rule Rule, d string) {
+	if l != nil {
+		l.metrics.Decision(rule.Name, d)
+	}
 }
 
 // Middleware applies rule to every request, keyed by key(r).

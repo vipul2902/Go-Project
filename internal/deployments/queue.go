@@ -22,6 +22,8 @@ type Job struct {
 	OrganizationID string
 	ProjectName    string
 	RepositoryURL  string
+	// TraceParent continues the trace of the request that queued the job.
+	TraceParent string
 }
 
 // Claim atomically takes the oldest QUEUED deployment, moves it to BUILDING
@@ -57,8 +59,10 @@ func (s *Service) Claim(ctx context.Context, workerID string, lease time.Duratio
 		return nil, err
 	}
 	job := &Job{Deployment: d}
-	err = s.pool.QueryRow(ctx, `SELECT organization_id, name, repository_url FROM projects WHERE id = $1`, d.ProjectID).
-		Scan(&job.OrganizationID, &job.ProjectName, &job.RepositoryURL)
+	err = s.pool.QueryRow(ctx, `
+		SELECT p.organization_id, p.name, p.repository_url, coalesce(d.trace_context, '')
+		FROM projects p JOIN deployments d ON d.project_id = p.id WHERE d.id = $1`, d.ID).
+		Scan(&job.OrganizationID, &job.ProjectName, &job.RepositoryURL, &job.TraceParent)
 	return job, err
 }
 
@@ -208,4 +212,16 @@ func (s *Service) LatestSucceeded(ctx context.Context, environmentID string) (*D
 		return nil, nil
 	}
 	return &d, err
+}
+
+// QueueStats reports queue state for metrics: queued and active counts and
+// the age of the oldest queued deployment (one query, at scrape time).
+func (s *Service) QueueStats(ctx context.Context) (queued, active int, oldest time.Duration, err error) {
+	var oldestSecs float64
+	err = s.pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE status = 'QUEUED'),
+		       count(*) FILTER (WHERE status IN ('BUILDING', 'DEPLOYING')),
+		       coalesce(extract(epoch FROM now() - min(created_at) FILTER (WHERE status = 'QUEUED')), 0)
+		FROM deployments WHERE status IN ('QUEUED', 'BUILDING', 'DEPLOYING')`).Scan(&queued, &active, &oldestSecs)
+	return queued, active, time.Duration(oldestSecs * float64(time.Second)), err
 }

@@ -20,6 +20,8 @@ import (
 	"github.com/vipul2902/clouddeploy/internal/deployments"
 	"github.com/vipul2902/clouddeploy/internal/httpx"
 	"github.com/vipul2902/clouddeploy/internal/kube"
+	"github.com/vipul2902/clouddeploy/internal/metrics"
+	"github.com/vipul2902/clouddeploy/internal/tracing"
 	"github.com/vipul2902/clouddeploy/internal/worker"
 )
 
@@ -37,7 +39,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})).
+	logger := slog.New(tracing.LogHandler{Handler: slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})}).
 		With("service", "clouddeploy-worker", "env", cfg.Env, "version", version)
 	slog.SetDefault(logger)
 
@@ -59,6 +61,26 @@ func run() error {
 	wcfg.LeaseTTL = cfg.LeaseTTL
 	wcfg.ReapInterval = cfg.LeaseTTL / 2
 	wcfg.ShutdownGrace = cfg.ShutdownTimeout
+
+	shutdownTracing, tracingOn, err := tracing.Setup(ctx, "clouddeploy-worker", version)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		fctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownTracing(fctx)
+	}()
+	logger.Info("tracing", "enabled", tracingOn)
+
+	registry := metrics.NewRegistry()
+	wcfg.Metrics = metrics.NewDeployments(registry)
+	svc := deployments.NewService(pool)
+	metrics.NewQueueCollector(registry, func() (int, int, time.Duration, error) {
+		qctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		return svc.QueueStats(qctx)
+	})
 	pipeline := worker.Pipeline{Builder: worker.DryRun{}, Deployer: worker.DryRun{}}
 	if cfg.Builder == config.BuilderDocker {
 		pipeline.Builder = builder.NewDocker(cfg.BuildWorkDir)
@@ -81,7 +103,7 @@ func run() error {
 	} else {
 		logger.Warn("WORKER_DEPLOYER=dryrun: nothing is deployed to a cluster")
 	}
-	w := worker.New(pool, deployments.NewService(pool), pipeline, wcfg, logger)
+	w := worker.New(pool, svc, pipeline, wcfg, logger)
 
 	// Health endpoints for Kubernetes probes. Liveness never checks the
 	// database (an outage must not restart workers in a loop).
@@ -89,6 +111,8 @@ func run() error {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": version})
 	})
+	// Internal port only (not exposed through any Service for users).
+	mux.Handle("GET /metrics", metrics.Handler(registry))
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		pctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()

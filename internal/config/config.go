@@ -29,6 +29,7 @@ const (
 type Config struct {
 	Env             string
 	Port            int
+	MetricsPort     int // internal-only Prometheus endpoint; 0 disables
 	LogLevel        slog.Level
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
@@ -68,6 +69,7 @@ func load(getenv func(string) string) (Config, error) {
 	cfg := Config{
 		Env:             valueOr(getenv("APP_ENV"), EnvDevelopment),
 		Port:            parseInt(getenv, "PORT", 8080, &errs),
+		MetricsPort:     parseInt(getenv, "METRICS_PORT", 9090, &errs),
 		ReadTimeout:     parseDuration(getenv, "HTTP_READ_TIMEOUT", 10*time.Second, &errs),
 		WriteTimeout:    parseDuration(getenv, "HTTP_WRITE_TIMEOUT", 15*time.Second, &errs),
 		IdleTimeout:     parseDuration(getenv, "HTTP_IDLE_TIMEOUT", 60*time.Second, &errs),

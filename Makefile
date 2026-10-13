@@ -167,6 +167,15 @@ k8s-forward: ## Open the in-cluster dashboard (and /api) on http://localhost:808
 k8s-uninstall: ## Remove the CloudDeploy release (keeps the dev database)
 	helm uninstall clouddeploy --kube-context $(KCTX) -n $(KNS)
 
+.PHONY: obs-up
+obs-up: ## Start Prometheus (:9091), Grafana (:3000), Jaeger (:16686); opt-in, ~300 MB
+	docker compose --profile observability up -d --wait
+	@echo "Run the API/worker with OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 for traces."
+
+.PHONY: obs-down
+obs-down: ## Stop the observability stack
+	docker compose --profile observability stop
+
 .PHONY: docker-build
 docker-build: ## Build the API container image
 	docker build --build-arg VERSION=$(VERSION) -t clouddeploy-api:$(VERSION) -t clouddeploy-api:latest .

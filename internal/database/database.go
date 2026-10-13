@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
+	"github.com/vipul2902/clouddeploy/internal/tracing"
 	"github.com/vipul2902/clouddeploy/migrations"
 )
 
@@ -30,6 +31,8 @@ func Open(ctx context.Context, url string, pc PoolConfig) (*pgxpool.Pool, error)
 		// Do not wrap err: it may echo the URL, which contains the password.
 		return nil, fmt.Errorf("parse database url: invalid format")
 	}
+	// Spans for queries that run inside a traced operation (no-op otherwise).
+	cfg.ConnConfig.Tracer = tracing.PGXTracer{}
 	cfg.MaxConns = pc.MaxConns
 	cfg.MinConns = pc.MinConns
 	cfg.MaxConnLifetime = pc.MaxConnLifetime

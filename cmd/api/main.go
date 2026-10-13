@@ -18,7 +18,9 @@ import (
 	"github.com/vipul2902/clouddeploy/internal/database"
 	"github.com/vipul2902/clouddeploy/internal/httpapi"
 	"github.com/vipul2902/clouddeploy/internal/kube"
+	"github.com/vipul2902/clouddeploy/internal/metrics"
 	"github.com/vipul2902/clouddeploy/internal/redisx"
+	"github.com/vipul2902/clouddeploy/internal/tracing"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".
@@ -37,7 +39,8 @@ func run() error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})).
+	// tracing.LogHandler adds trace_id/span_id to logs written inside a span.
+	logger := slog.New(tracing.LogHandler{Handler: slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})}).
 		With("service", "clouddeploy-api", "env", cfg.Env, "version", version)
 	slog.SetDefault(logger)
 
@@ -72,7 +75,16 @@ func run() error {
 		logger.Info("monitoring enabled", "kube_context", cfg.KubeContext)
 	}
 
+	shutdownTracing, tracingOn, err := tracing.Setup(ctx, "clouddeploy-api", version)
+	if err != nil {
+		return err
+	}
+	defer flush(shutdownTracing, logger)
+	logger.Info("tracing", "enabled", tracingOn)
+
+	registry := metrics.NewRegistry()
 	handler, err := httpapi.NewApp(pool, httpapi.AppConfig{
+		Metrics:         registry,
 		Kube:            kubeClient,
 		Redis:           rdb,
 		TrustedProxies:  cfg.TrustedProxies,
@@ -84,6 +96,19 @@ func run() error {
 	})
 	if err != nil {
 		return err
+	}
+
+	// Metrics on a separate internal port: never exposed through the public
+	// Service or ingress (they reveal routes, error rates, queue depth).
+	if cfg.MetricsPort != 0 {
+		ms := &http.Server{Addr: fmt.Sprintf(":%d", cfg.MetricsPort), Handler: metrics.Handler(registry), ReadHeaderTimeout: 5 * time.Second}
+		go func() {
+			if err := ms.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Error("metrics server", "err", err)
+			}
+		}()
+		defer ms.Close()
+		logger.Info("metrics server starting", "addr", ms.Addr)
 	}
 
 	srv := &http.Server{
@@ -121,4 +146,13 @@ func run() error {
 	}
 	logger.Info("server stopped cleanly")
 	return nil
+}
+
+// flush exports buffered spans before exit (bounded, so shutdown cannot hang).
+func flush(shutdown func(context.Context) error, logger *slog.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := shutdown(ctx); err != nil {
+		logger.Warn("flush traces", "err", err)
+	}
 }
