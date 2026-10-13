@@ -1,0 +1,60 @@
+# Alert rules: each answers "should a human look now?", with a threshold and
+# a duration that ignore brief blips.
+groups:
+  - name: clouddeploy-api
+    rules:
+      - alert: APIHighErrorRate
+        expr: |
+          (sum(rate(http_requests_total{code=~"5.."}[5m])) or vector(0)) / sum(rate(http_requests_total[5m])) > 0.05
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "More than 5% of API requests fail with 5xx"
+          description: "5xx ratio {{ $value | humanizePercentage }} over 10 minutes."
+      - alert: APILatencyHigh
+        expr: |
+          histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m]))) > 0.5
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "p95 latency above 500ms on {{ $labels.route }}"
+      - alert: RateLimiterFailingOpen
+        expr: sum(rate(ratelimit_decisions_total{decision="fail_open"}[5m])) > 0
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "Rate limiting is disabled: Redis unreachable, requests allowed unchecked"
+          description: "Brute-force protection on login is off until Redis recovers (ADR-003)."
+      - alert: APIDown
+        expr: up{job="clouddeploy-api"} == 0
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "API instance {{ $labels.instance }} is not being scraped"
+  - name: clouddeploy-deployments
+    rules:
+      - alert: DeploymentFailureRateHigh
+        expr: |
+          sum(increase(deployment_total{outcome="failed"}[1h])) / sum(increase(deployment_total[1h])) > 0.25
+          and sum(increase(deployment_total[1h])) >= 4
+        labels: {severity: ticket}
+        annotations:
+          summary: "More than 25% of deployments failed in the last hour"
+      - alert: DeploymentQueueBacklog
+        expr: deployment_queue_oldest_age_seconds > 300
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "A deployment has waited in the queue for over 5 minutes"
+          description: "Workers are down or saturated (check worker_deployments_in_flight and up)."
+      - alert: DeploymentLeaseLost
+        expr: increase(deployment_failures_total{stage="lease_lost"}[30m]) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "A worker died mid-deployment (lease expired; deployment failed by the reaper)"
+      - alert: WorkerDown
+        expr: up{job="clouddeploy-worker"} == 0
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "Worker {{ $labels.instance }} is not being scraped"

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
 	"k8s.io/client-go/kubernetes"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/vipul2902/clouddeploy/internal/deployments"
 	"github.com/vipul2902/clouddeploy/internal/environments"
 	"github.com/vipul2902/clouddeploy/internal/kube"
+	"github.com/vipul2902/clouddeploy/internal/metrics"
 	"github.com/vipul2902/clouddeploy/internal/monitoring"
 	"github.com/vipul2902/clouddeploy/internal/organizations"
 	"github.com/vipul2902/clouddeploy/internal/projects"
@@ -33,6 +35,8 @@ type AppConfig struct {
 	TrustedProxies []netip.Prefix
 	// Kube enables monitoring (health, app logs); nil answers 503.
 	Kube kubernetes.Interface
+	// Metrics registers request and rate limit metrics (nil: off).
+	Metrics prometheus.Registerer
 }
 
 // NewApp wires every service and handler into the root HTTP handler. It is
@@ -65,6 +69,11 @@ func appDeps(pool *pgxpool.Pool, cfg AppConfig) (Deps, error) {
 		return Deps{}, err
 	}
 	limiter := ratelimit.New(cfg.Redis, cfg.Logger)
+	var httpMetrics *metrics.HTTP
+	if cfg.Metrics != nil {
+		httpMetrics = metrics.NewHTTP(cfg.Metrics)
+		limiter.WithMetrics(metrics.NewRateLimit(cfg.Metrics))
+	}
 	var soft map[string]ReadinessCheck
 	if cfg.Redis != nil {
 		soft = map[string]ReadinessCheck{"redis": func(ctx context.Context) error { return cfg.Redis.Ping(ctx).Err() }}
@@ -83,6 +92,7 @@ func appDeps(pool *pgxpool.Pool, cfg AppConfig) (Deps, error) {
 		SoftChecks:     soft,
 		Limiter:        limiter,
 		TrustedProxies: cfg.TrustedProxies,
+		HTTPMetrics:    httpMetrics,
 		Auth:           auth.NewHandler(authSvc, limiter),
 		Organizations:  organizations.NewHandler(organizations.NewService(pool)),
 		Projects:       projects.NewHandler(projectSvc),

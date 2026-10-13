@@ -15,6 +15,7 @@ import (
 	"github.com/vipul2902/clouddeploy/internal/environments"
 	"github.com/vipul2902/clouddeploy/internal/httpx"
 	"github.com/vipul2902/clouddeploy/internal/projects"
+	"github.com/vipul2902/clouddeploy/internal/tracing"
 )
 
 // Service implements deployment use cases. Authorization happens in the
@@ -129,9 +130,10 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Deployment, bool,
 		}
 		// triggered_by is NULL for system-initiated deployments (auto-rollback).
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO deployments (project_id, environment_id, commit_sha, triggered_by, idempotency_key, config, rollback_of)
-			VALUES ($1, $2, $3, NULLIF($4, '')::uuid, NULLIF($5, ''), $6, NULLIF($7, '')::uuid) RETURNING id`,
-			p.Project.ID, p.Environment.ID, p.CommitSHA, p.ActorID, p.IdempotencyKey, cfg, p.RollbackOf).Scan(&id); err != nil {
+			INSERT INTO deployments (project_id, environment_id, commit_sha, triggered_by, idempotency_key, config, rollback_of, trace_context)
+			VALUES ($1, $2, $3, NULLIF($4, '')::uuid, NULLIF($5, ''), $6, NULLIF($7, '')::uuid, NULLIF($8, '')) RETURNING id`,
+			p.Project.ID, p.Environment.ID, p.CommitSHA, p.ActorID, p.IdempotencyKey, cfg, p.RollbackOf,
+			tracing.Inject(ctx)).Scan(&id); err != nil {
 			return err
 		}
 		action := p.AuditAction

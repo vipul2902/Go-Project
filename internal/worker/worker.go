@@ -20,7 +20,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/vipul2902/clouddeploy/internal/deployments"
+	"github.com/vipul2902/clouddeploy/internal/metrics"
+	"github.com/vipul2902/clouddeploy/internal/tracing"
 )
 
 // Config tunes the worker.
@@ -33,6 +39,8 @@ type Config struct {
 	ShutdownGrace time.Duration // time in-flight jobs get to finish on shutdown
 	BuildTimeout  time.Duration
 	DeployTimeout time.Duration
+	// Metrics records deployment metrics; nil disables them.
+	Metrics *metrics.Deployments
 }
 
 // DefaultConfig returns production defaults.
@@ -142,8 +150,30 @@ func (w *Worker) signal() {
 // process runs one claimed job to a terminal state.
 func (w *Worker) process(base context.Context, job deployments.Job) {
 	d := job.Deployment
+	// Continue the trace of the API request that queued this deployment:
+	// one trace covers request -> queue -> build -> rollout.
+	traced, span := tracing.Tracer("worker").Start(tracing.Extract(base, job.TraceParent), "deployment "+d.Environment,
+		trace.WithAttributes(
+			attribute.String("deployment.id", d.ID), attribute.String("deployment.environment", d.Environment),
+			attribute.String("project.name", job.ProjectName), attribute.String("vcs.commit_sha", d.CommitSHA),
+			attribute.Bool("deployment.rollback", d.RollbackOf != nil)))
+	if d.StartedAt != nil {
+		span.SetAttributes(attribute.Float64("deployment.queue_wait_seconds", d.StartedAt.Sub(d.CreatedAt).Seconds()))
+	}
+	w.cfg.Metrics.Started()
+	var failStage string
+	defer func() {
+		w.cfg.Metrics.Done()
+		w.recordOutcome(base, d, failStage, span)
+		span.End()
+	}()
 	logger := w.logger.With("deployment_id", d.ID, "environment", d.Environment)
-	jobCtx, cancelJob := context.WithCancel(base)
+	if sc := span.SpanContext(); sc.IsValid() {
+		// Every log line about this job joins its trace, including lines
+		// logged without a context (fail, autoRollback, heartbeat).
+		logger = logger.With("trace_id", sc.TraceID().String())
+	}
+	jobCtx, cancelJob := context.WithCancel(traced)
 	defer cancelJob()
 
 	// lost is set when the heartbeat finds we no longer own the deployment
@@ -161,6 +191,7 @@ func (w *Worker) process(base context.Context, job deployments.Job) {
 
 	defer func() {
 		if p := recover(); p != nil {
+			failStage = "panic"
 			logger.Error("executor panicked", "panic", p)
 			w.fail(base, job, &lost, errors.New("internal error: executor panicked"), logLine, logger)
 		}
@@ -170,9 +201,10 @@ func (w *Worker) process(base context.Context, job deployments.Job) {
 	logLine("info", fmt.Sprintf("claimed by worker %s; building %s", w.cfg.ID, d.CommitSHA))
 
 	buildCtx, cancelBuild := context.WithTimeout(jobCtx, w.cfg.BuildTimeout)
-	image, err := w.exec.Build(buildCtx, job, logLine)
+	image, err := w.step(buildCtx, "build", func(ctx context.Context) (string, error) { return w.exec.Build(ctx, job, logLine) })
 	cancelBuild()
 	if err != nil {
+		failStage = "build"
 		w.fail(base, job, &lost, fmt.Errorf("build: %w", err), logLine, logger) // nothing applied: no rollback
 		return
 	}
@@ -193,14 +225,15 @@ func (w *Worker) process(base context.Context, job deployments.Job) {
 		logLine("info", fmt.Sprintf("rolling back to deployment %s (commit %s) with its original configuration", *d.RollbackOf, d.CommitSHA))
 	}
 	deployCtx, cancelDeploy := context.WithTimeout(jobCtx, w.cfg.DeployTimeout)
-	err = w.exec.Deploy(deployCtx, job, image, logLine)
+	_, err = w.step(deployCtx, "deploy", func(ctx context.Context) (string, error) { return "", w.exec.Deploy(ctx, job, image, logLine) })
 	cancelDeploy()
 	if err != nil {
+		failStage = "deploy"
 		// The cluster was changed and the rollout failed: restore the last
 		// good release (if the environment allows it). Not after a user
 		// cancel, a lost lease, or a shutdown: those are not release failures.
 		if w.fail(base, job, &lost, fmt.Errorf("deploy: %w", err), logLine, logger) {
-			w.autoRollback(base, d.ID, logLine, logger)
+			w.autoRollback(base, d.ID, d.Environment, logLine, logger)
 		}
 		return
 	}
@@ -245,7 +278,7 @@ func (w *Worker) fail(base context.Context, job deployments.Job, lost *atomic.Bo
 // autoRollback queues a rollback to the last good release and records the
 // outcome in the failed deployment's log. The new deployment is processed
 // like any other (by whichever worker claims it).
-func (w *Worker) autoRollback(base context.Context, failedID string, logLine LogFunc, logger *slog.Logger) {
+func (w *Worker) autoRollback(base context.Context, failedID, env string, logLine LogFunc, logger *slog.Logger) {
 	var rb *deployments.Deployment
 	var skipped string
 	err := detached(base, func(ctx context.Context) (err error) {
@@ -257,8 +290,10 @@ func (w *Worker) autoRollback(base context.Context, failedID string, logLine Log
 		logger.Error("auto-rollback failed", "err", err)
 		logLine("error", "auto-rollback could not be queued: "+err.Error())
 	case rb == nil:
+		w.cfg.Metrics.AutoRollback(env, "skipped")
 		logLine("warn", "auto-rollback skipped: "+skipped)
 	default:
+		w.cfg.Metrics.AutoRollback(env, "queued")
 		logger.Warn("auto-rollback queued", "rollback_deployment_id", rb.ID, "restores", *rb.RollbackOf)
 		logLine("warn", fmt.Sprintf("auto-rollback queued: deployment %s restores deployment %s (commit %s)", rb.ID, *rb.RollbackOf, rb.CommitSHA))
 	}
@@ -307,6 +342,10 @@ func (w *Worker) reapLoop(ctx context.Context) {
 		}
 		for _, id := range ids {
 			w.logger.Warn("reaped deployment with expired lease", "deployment_id", id)
+			if d, err := w.svc.Get(ctx, id); err == nil {
+				w.cfg.Metrics.Failed(d.Environment, "lease_lost")
+				w.cfg.Metrics.Finished(d.Environment, "failed", duration(d))
+			}
 		}
 	}
 }
@@ -331,4 +370,51 @@ func sleep(ctx context.Context, d time.Duration) {
 	case <-ctx.Done():
 	case <-time.After(d):
 	}
+}
+
+// step runs one pipeline step in its own span and records its duration.
+func (w *Worker) step(ctx context.Context, name string, fn func(context.Context) (string, error)) (string, error) {
+	ctx, span := tracing.Tracer("worker").Start(ctx, name)
+	start := time.Now()
+	out, err := fn(ctx)
+	w.cfg.Metrics.Step(name, err, time.Since(start))
+	tracing.End(span, err)
+	return out, err
+}
+
+// recordOutcome reads the deployment's final state from the database (the
+// source of truth, whoever wrote it: this worker, a user's cancel, the
+// reaper) and records metrics and span status from it.
+func (w *Worker) recordOutcome(base context.Context, d deployments.Deployment, failStage string, span trace.Span) {
+	var final deployments.Deployment
+	if err := detached(base, func(ctx context.Context) (err error) { final, err = w.svc.Get(ctx, d.ID); return err }); err != nil {
+		return
+	}
+	outcome := map[deployments.Status]string{deployments.StatusRunning: "succeeded", deployments.StatusFailed: "failed", deployments.StatusCancelled: "cancelled"}[final.Status]
+	if outcome == "" {
+		return // not terminal (should not happen)
+	}
+	span.SetAttributes(attribute.String("deployment.outcome", outcome))
+	if outcome == "failed" {
+		if failStage == "" {
+			failStage = "interrupted"
+		}
+		span.SetStatus(codes.Error, deref(final.ErrorMessage))
+		w.cfg.Metrics.Failed(final.Environment, failStage)
+	}
+	w.cfg.Metrics.Finished(final.Environment, outcome, duration(final))
+}
+
+func duration(d deployments.Deployment) time.Duration {
+	if d.StartedAt == nil || d.CompletedAt == nil {
+		return 0
+	}
+	return d.CompletedAt.Sub(*d.StartedAt)
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

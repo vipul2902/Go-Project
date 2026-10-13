@@ -59,6 +59,11 @@ spec:
       annotations:
         # Roll pods when non-secret config changes.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.observability.metrics.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.observability.metrics.apiPort | quote }}
+        prometheus.io/path: /metrics
+        {{- end }}
     spec:
       serviceAccountName: {{ $fullname }}-api
       # Token needed for the read-only monitoring role above.
@@ -78,6 +83,10 @@ spec:
             - {name: SHUTDOWN_TIMEOUT, value: {{ .Values.api.shutdownTimeout | quote }}}
           ports:
             - {name: http, containerPort: {{ .Values.api.port }}, protocol: TCP}
+            {{- if .Values.observability.metrics.enabled }}
+            # Internal only: not part of the Service below.
+            - {name: metrics, containerPort: {{ .Values.observability.metrics.apiPort }}, protocol: TCP}
+            {{- end }}
           readinessProbe:
             httpGet: {path: /readyz, port: http}
             periodSeconds: 5

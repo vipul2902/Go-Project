@@ -13,7 +13,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/vipul2902/clouddeploy/internal/metrics"
 
 	"github.com/vipul2902/clouddeploy/internal/ratelimit"
 	"github.com/vipul2902/clouddeploy/internal/redisx/redistest"
@@ -125,7 +129,8 @@ func TestExactLimitUnderConcurrencyAcrossReplicas(t *testing.T) {
 func TestFailOpenWhenRedisUnavailable(t *testing.T) {
 	dead := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1", DialTimeout: 100 * time.Millisecond, MaxRetries: -1})
 	t.Cleanup(func() { _ = dead.Close() })
-	l := ratelimit.New(dead, logger)
+	reg := prometheus.NewRegistry()
+	l := ratelimit.New(dead, logger).WithMetrics(metrics.NewRateLimit(reg))
 	rule := ratelimit.Rule{Name: "t", Limit: 1, Period: time.Hour}
 
 	if _, err := l.Allow(context.Background(), rule, "k"); err == nil {
@@ -141,6 +146,29 @@ func TestFailOpenWhenRedisUnavailable(t *testing.T) {
 			t.Error("rate limit headers set without a real check")
 		}
 	}
+	// Failing open is invisible to clients; the metric is how operators
+	// find out (and what the RateLimiterFailingOpen alert fires on).
+	if v := testutil.ToFloat64(counterFor(t, reg)); v != 3 {
+		t.Errorf("fail_open decisions = %v, want 3", v)
+	}
+}
+
+func counterFor(t *testing.T, reg *prometheus.Registry) prometheus.Collector {
+	t.Helper()
+	mfs, _ := reg.Gather()
+	for _, mf := range mfs {
+		for _, m := range mf.GetMetric() {
+			for _, l := range m.GetLabel() {
+				if l.GetName() == "decision" && l.GetValue() == "fail_open" {
+					c := prometheus.NewCounter(prometheus.CounterOpts{Name: "x"})
+					c.Add(m.GetCounter().GetValue())
+					return c
+				}
+			}
+		}
+	}
+	t.Fatal("no fail_open series")
+	return nil
 }
 
 // One Redis round trip running the GCRA script: the per-request cost of

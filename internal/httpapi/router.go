@@ -7,10 +7,15 @@ import (
 	"net/netip"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/vipul2902/clouddeploy/internal/auth"
 	"github.com/vipul2902/clouddeploy/internal/deployments"
 	"github.com/vipul2902/clouddeploy/internal/environments"
 	"github.com/vipul2902/clouddeploy/internal/httpx"
+	"github.com/vipul2902/clouddeploy/internal/metrics"
 	"github.com/vipul2902/clouddeploy/internal/middleware"
 	"github.com/vipul2902/clouddeploy/internal/monitoring"
 	"github.com/vipul2902/clouddeploy/internal/organizations"
@@ -35,6 +40,8 @@ type Deps struct {
 	Limiter *ratelimit.Limiter
 	// TrustedProxies may set X-Forwarded-For (e.g. the ingress controller).
 	TrustedProxies []netip.Prefix
+	// HTTPMetrics records request metrics (nil: off).
+	HTTPMetrics *metrics.HTTP
 	// Handlers are optional so health endpoints can be tested in isolation.
 	Auth          *auth.Handler
 	Organizations *organizations.Handler
@@ -104,7 +111,14 @@ func buildRouter(d Deps) (http.Handler, []string) {
 		httpx.WriteError(w, r, http.StatusNotFound, httpx.CodeNotFound, "resource not found")
 	})
 
-	return middleware.Chain(mux,
+	// Order matters. otelhttp is outermost so the request span covers every
+	// layer and later logs carry its trace_id. Route-aware middleware is
+	// innermost: only the request the ServeMux receives gets r.Pattern.
+	inner := routeSpan(mux)
+	if d.HTTPMetrics != nil {
+		inner = d.HTTPMetrics.Middleware(inner)
+	}
+	chain := middleware.Chain(inner,
 		middleware.RequestID,
 		middleware.ClientIP(d.TrustedProxies),
 		middleware.Logger(d.Logger),
@@ -112,7 +126,23 @@ func buildRouter(d Deps) (http.Handler, []string) {
 			httpx.WriteError(w, r, http.StatusInternalServerError, httpx.CodeInternal, "internal server error")
 		}),
 		middleware.SecureHeaders,
+	)
+	return otelhttp.NewHandler(chain, "http.server",
+		// Health probes every few seconds would drown real traces.
+		otelhttp.WithFilter(func(r *http.Request) bool { return r.URL.Path != "/healthz" && r.URL.Path != "/readyz" }),
 	), mux.patterns
+}
+
+// routeSpan names the request span after the matched route pattern (low
+// cardinality: "GET /api/v1/deployments/{id}", never the raw path).
+func routeSpan(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r)
+		if span := trace.SpanFromContext(r.Context()); r.Pattern != "" && span.IsRecording() {
+			span.SetName(r.Pattern)
+			span.SetAttributes(semconv.HTTPRoute(r.Pattern))
+		}
+	})
 }
 
 // handleLiveness answers "is the process alive?". It must not check

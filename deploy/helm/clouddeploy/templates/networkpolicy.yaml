@@ -24,6 +24,25 @@ spec:
         - namespaceSelector:
             matchLabels: {{- toYaml .Values.networkPolicy.ingressNamespaceLabels | nindent 14 }}
       ports: [{port: http, protocol: TCP}]
+{{- if .Values.observability.metrics.enabled }}
+---
+# Metrics ports accept traffic only from the scraper's namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-metrics
+  labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/instance: {{ .Release.Name }}}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {{- toYaml .Values.observability.scraperNamespaceLabels | nindent 14 }}
+      ports:
+        - {port: {{ .Values.observability.metrics.apiPort }}, protocol: TCP}
+        - {port: {{ .Values.worker.port }}, protocol: TCP}
+{{- end }}
 {{- if .Values.web.enabled }}
 ---
 apiVersion: networking.k8s.io/v1

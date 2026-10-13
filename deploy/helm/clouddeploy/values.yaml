@@ -66,6 +66,20 @@ migrations:
 seed:
   enabled: false         # development data; the seed binary refuses non-dev
 
+observability:
+  # Prometheus metrics on internal ports only (API :9090, worker :8081/metrics),
+  # never through the public Service or ingress. Pods carry prometheus.io/*
+  # scrape annotations.
+  metrics:
+    enabled: true
+    apiPort: 9090
+  # OTLP/HTTP endpoint for traces (e.g. http://otel-collector.monitoring:4318).
+  # Empty: tracing off (zero cost).
+  otlpEndpoint: ""
+  # Namespace allowed to scrape metrics when networkPolicy.enabled.
+  scraperNamespaceLabels:
+    kubernetes.io/metadata.name: monitoring
+
 ingress:
   enabled: false
   className: ""

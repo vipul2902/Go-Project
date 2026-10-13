@@ -2,7 +2,7 @@
 
 A cloud-native deployment platform: register an application, define its environments, build it, deploy it to Kubernetes, and track status, health, logs and history — with Azure infrastructure provisioned by Terraform.
 
-> **Status:** Phase 15 (test hardening) complete. Fuzzing (including differential fuzzing against Kubernetes), model-based tests, a route authorization sweep, benchmarks and stress runs. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
+> **Status:** Phase 16 (observability) complete. Prometheus metrics, OpenTelemetry traces that follow a deployment through the queue into the worker, trace-correlated logs, a Grafana dashboard and alert rules. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
 
 ## Screenshots
 
@@ -11,6 +11,9 @@ A cloud-native deployment platform: register an application, define its environm
 | ![Dashboard](docs/screenshots/dashboard.png) | ![Project](docs/screenshots/project-overview.png) |
 | **Deployment (timeline, live pipeline log)** | **Rollback confirmation** |
 | ![Deployment](docs/screenshots/deployment.png) | ![Rollback](docs/screenshots/rollback-confirm.png) |
+
+| **Grafana (metrics)** | **Jaeger (one trace: API → queue → worker)** |
+| ![Grafana](docs/screenshots/grafana-overview.png) | ![Jaeger](docs/screenshots/jaeger-deployment-trace.png) |
 
 More screenshots are in [docs/screenshots](docs/screenshots). The dashboard design is described in [docs/frontend.md](docs/frontend.md).
 
@@ -64,6 +67,7 @@ curl localhost:8080/readyz
 | `make k8s-up` / `make k8s-down` / `make test-k8s` | Local Kubernetes (Colima k3s) and the deployer tests against it |
 | `make helm-lint` | Lint the Helm chart with every values file and check its safety guards |
 | `make k8s-deploy` / `make k8s-forward` / `make k8s-uninstall` | Run CloudDeploy itself in the cluster with Helm (dev values). `k8s-forward` opens the dashboard on http://localhost:8080. |
+| `make obs-up` / `make obs-down` | Opt-in Prometheus, Grafana and Jaeger (see [docs/observability.md](docs/observability.md)) |
 | `make web-dev` / `make web-check` | Dashboard dev server; type-check, lint, test and build the dashboard |
 
 ## Configuration
@@ -80,6 +84,8 @@ All configuration comes from environment variables (see [.env.example](.env.exam
 | `DATABASE_URL` | *(required)* | PostgreSQL connection string |
 | `DB_MAX_CONNS` / `DB_MIN_CONNS` | `10` / `1` | Pool bounds. Keep `replicas × max` below the server's `max_connections`. |
 | `DB_MAX_CONN_LIFETIME` / `DB_MAX_CONN_IDLE_TIME` | `30m` / `5m` | Connection recycling |
+| `METRICS_PORT` | `9090` | Internal Prometheus endpoint (`0` disables it); never exposed publicly |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(empty)* | Enables tracing, for example `http://localhost:4318` (Jaeger). Empty means no tracing and no cost. |
 | `KUBE_CONTEXT` | *(empty)* | API: the cluster for monitoring when running outside one (empty means monitoring returns 503). Worker: required outside a cluster. |
 | `TRUSTED_PROXY_CIDRS` | *(empty)* | Proxies allowed to set `X-Forwarded-For`, read from the right (see [security.md](docs/security.md)) |
 | `REDIS_URL` | *(required)* | Used for rate limiting. Startup fails if it's unreachable; at runtime an outage fails open (see ADR-003). |
@@ -133,12 +139,13 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 
 ## Roadmap
 
-0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s ✅ · 11 Helm ✅ · 12 monitoring/logs ✅ · 13 rollback ✅ · 14 dashboard ✅ · 15 test hardening ✅ · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
+0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s ✅ · 11 Helm ✅ · 12 monitoring/logs ✅ · 13 rollback ✅ · 14 dashboard ✅ · 15 test hardening ✅ · 16 observability ✅ · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
 
 ## Documentation
 
 - [API reference](docs/api.md)
 - [Testing strategy: fuzzing, model-based tests, benchmarks](docs/testing.md)
+- [Observability: metrics, traces, logs, alerts](docs/observability.md)
 - [Dashboard](docs/frontend.md)
 - [Architecture decisions](docs/adr/)
 - [Local development](docs/local-development.md)

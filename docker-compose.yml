@@ -121,5 +121,42 @@ services:
         limits:
           memory: 64m
 
+  # ---- observability profile (opt-in: ~300 MB) -------------------------
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v3.5.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=2d", "--web.enable-lifecycle"]
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+    # host.lima.internal: the Mac, where make dev / make worker run.
+    extra_hosts: ["host.lima.internal:192.168.5.2"]
+    ports: ["127.0.0.1:9091:9090"]
+    deploy: {resources: {limits: {memory: 160m}}}
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:12.1.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on: [prometheus, jaeger]
+    deploy: {resources: {limits: {memory: 160m}}}
+
+  jaeger:
+    profiles: ["observability"]
+    # All-in-one Jaeger v2 with in-memory storage; receives OTLP on 4318.
+    image: jaegertracing/jaeger:2.9.0
+    ports:
+      - "127.0.0.1:16686:16686" # UI
+      - "127.0.0.1:4318:4318"   # OTLP/HTTP
+    deploy: {resources: {limits: {memory: 160m}}}
+
 volumes:
   pgdata:

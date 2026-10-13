@@ -1,0 +1,26 @@
+# Local Prometheus (docker compose --profile observability).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # The API and worker running natively on the Mac (make dev / make worker).
+  # host.lima.internal is the Mac as seen from Colima's VM.
+  - job_name: clouddeploy-api
+    static_configs:
+      - targets: ["host.lima.internal:9090"]
+        labels: {instance: native}
+      - targets: ["api:9090"]
+        labels: {instance: compose}
+  - job_name: clouddeploy-worker
+    static_configs:
+      - targets: ["host.lima.internal:8081"]
+        labels: {instance: native}
+      - targets: ["worker:8081"]
+        labels: {instance: compose}
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
