@@ -17,14 +17,19 @@ type Worker struct {
 	DatabaseURL       string
 	DBMaxConnLifetime time.Duration
 	Concurrency       int
-	Executor          string
+	Builder           string // "docker" | "dryrun"
+	Deployer          string // "dryrun" (Kubernetes in Phase 10)
+	BuildWorkDir      string
 	PollInterval      time.Duration
 	LeaseTTL          time.Duration
 	ShutdownTimeout   time.Duration
 }
 
-// Supported deployment executors.
-const ExecutorDryRun = "dryrun"
+// Supported builder and deployer implementations.
+const (
+	DryRun        = "dryrun"
+	BuilderDocker = "docker"
+)
 
 // LoadWorker reads the worker configuration from the environment.
 func LoadWorker() (Worker, error) { return loadWorker(os.Getenv) }
@@ -37,7 +42,9 @@ func loadWorker(getenv func(string) string) (Worker, error) {
 		DatabaseURL:       getenv("DATABASE_URL"),
 		DBMaxConnLifetime: parseDuration(getenv, "DB_MAX_CONN_LIFETIME", 30*time.Minute, &errs),
 		Concurrency:       parseInt(getenv, "WORKER_CONCURRENCY", 2, &errs),
-		Executor:          getenv("DEPLOY_EXECUTOR"),
+		Builder:           getenv("WORKER_BUILDER"),
+		Deployer:          getenv("WORKER_DEPLOYER"),
+		BuildWorkDir:      valueOr(getenv("BUILD_WORKDIR"), os.TempDir()),
 		PollInterval:      parseDuration(getenv, "WORKER_POLL_INTERVAL", 5*time.Second, &errs),
 		LeaseTTL:          parseDuration(getenv, "WORKER_LEASE_TTL", 30*time.Second, &errs),
 		ShutdownTimeout:   parseDuration(getenv, "SHUTDOWN_TIMEOUT", 20*time.Second, &errs),
@@ -57,14 +64,21 @@ func loadWorker(getenv func(string) string) (Worker, error) {
 	if cfg.LeaseTTL < 3*time.Second {
 		errs = append(errs, errors.New("WORKER_LEASE_TTL: must be at least 3s"))
 	}
-	// Explicit on purpose: there is no default executor, so nobody runs the
-	// dry-run executor believing it deploys for real.
-	switch cfg.Executor {
-	case ExecutorDryRun:
+	// Explicit on purpose: no defaults, so nobody runs simulated builds or
+	// deployments believing they are real.
+	switch cfg.Builder {
+	case BuilderDocker, DryRun:
 	case "":
-		errs = append(errs, errors.New(`DEPLOY_EXECUTOR: required ("dryrun" until the real builder/deployer land in Phases 9-10)`))
+		errs = append(errs, errors.New(`WORKER_BUILDER: required ("docker" or "dryrun")`))
 	default:
-		errs = append(errs, fmt.Errorf("DEPLOY_EXECUTOR: unsupported value %q", cfg.Executor))
+		errs = append(errs, fmt.Errorf("WORKER_BUILDER: unsupported value %q", cfg.Builder))
+	}
+	switch cfg.Deployer {
+	case DryRun:
+	case "":
+		errs = append(errs, errors.New(`WORKER_DEPLOYER: required ("dryrun" until the Kubernetes deployer lands in Phase 10)`))
+	default:
+		errs = append(errs, fmt.Errorf("WORKER_DEPLOYER: unsupported value %q", cfg.Deployer))
 	}
 	return cfg, errors.Join(errs...)
 }

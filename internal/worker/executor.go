@@ -14,23 +14,34 @@ type LogFunc func(level, msg string)
 // Executor performs the external side effects of a deployment. Steps must
 // honour ctx: it is cancelled when the user cancels the deployment, when the
 // worker loses its lease, or when a shutdown grace period runs out.
-//
-// The interface exists because there are genuinely several implementations
-// (dry-run now; the Docker builder in Phase 9; the Kubernetes deployer in
-// Phase 10) and tests need to drive failures, hangs and panics.
 type Executor interface {
-	// Build produces a container image for the job's commit and returns its
-	// reference.
+	Builder
+	Deployer
+}
+
+// Builder produces a container image for the job's commit and returns its
+// reference.
+type Builder interface {
 	Build(ctx context.Context, job deployments.Job, log LogFunc) (image string, err error)
-	// Deploy rolls the image out to the job's environment and returns once
-	// the rollout has succeeded.
+}
+
+// Deployer rolls the image out to the job's environment and returns once
+// the rollout has succeeded.
+type Deployer interface {
 	Deploy(ctx context.Context, job deployments.Job, image string, log LogFunc) error
 }
 
-// DryRun describes what a real deployment would do without doing it. It is
-// the executor until the real builder (Phase 9) and Kubernetes deployer
-// (Phase 10) exist, so the queue, leases and state machine can run end to
-// end. Every line it writes says [dry-run]: nothing is built or deployed.
+// Pipeline combines independently chosen build and deploy implementations
+// (e.g. the Docker builder with the dry-run deployer until Phase 10).
+type Pipeline struct {
+	Builder
+	Deployer
+}
+
+// DryRun describes what a real deployment would do without doing it. It can
+// stand in for the builder, the deployer, or both, so the queue, leases and
+// state machine run end to end before the real implementations exist. Every
+// line it writes says [dry-run].
 type DryRun struct{}
 
 // Build reports the image that would be built.
@@ -57,6 +68,6 @@ func (DryRun) Deploy(ctx context.Context, job deployments.Job, image string, log
 		}
 	}
 	log("info", "[dry-run] environment variables: "+strings.Join(vars, ", "))
-	log("warn", "[dry-run] no image was built and no cluster changes were made")
+	log("warn", "[dry-run] no cluster changes were made")
 	return ctx.Err()
 }

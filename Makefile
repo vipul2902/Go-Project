@@ -14,8 +14,9 @@ dev: ## Run the API locally (loads .env if present)
 	@set -a; [ -f .env ] && source .env; set +a; go run ./cmd/api
 
 .PHONY: worker
-worker: ## Run the deployment worker locally (dry-run executor)
-	@set -a; [ -f .env ] && source .env; set +a; DEPLOY_EXECUTOR=$${DEPLOY_EXECUTOR:-dryrun} go run ./cmd/worker
+worker: ## Run the deployment worker locally (Docker builds, dry-run deploys)
+	@set -a; [ -f .env ] && source .env; set +a; \
+	WORKER_BUILDER=$${WORKER_BUILDER:-docker} WORKER_DEPLOYER=$${WORKER_DEPLOYER:-dryrun} go run ./cmd/worker
 
 .PHONY: build
 build: ## Build the API and worker binaries into bin/
@@ -27,7 +28,7 @@ test: ## Run unit tests with the race detector
 	go test -race -count=1 ./...
 
 .PHONY: test-integration
-test-integration: ## Run integration tests against compose Postgres + Redis (needs make db-up)
+test-integration: ## Integration tests: compose Postgres + Redis, local git + Docker (needs make db-up)
 	@set -a; source .env; set +a; go test -race -count=1 -p 1 -tags integration ./...
 
 .PHONY: cover

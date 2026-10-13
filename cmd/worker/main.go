@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/vipul2902/clouddeploy/internal/builder"
 	"github.com/vipul2902/clouddeploy/internal/config"
 	"github.com/vipul2902/clouddeploy/internal/database"
 	"github.com/vipul2902/clouddeploy/internal/deployments"
@@ -57,10 +58,14 @@ func run() error {
 	wcfg.LeaseTTL = cfg.LeaseTTL
 	wcfg.ReapInterval = cfg.LeaseTTL / 2
 	wcfg.ShutdownGrace = cfg.ShutdownTimeout
-	if cfg.Executor == config.ExecutorDryRun {
-		logger.Warn("DEPLOY_EXECUTOR=dryrun: deployments are simulated; nothing is built or deployed")
+	pipeline := worker.Pipeline{Builder: worker.DryRun{}, Deployer: worker.DryRun{}}
+	if cfg.Builder == config.BuilderDocker {
+		pipeline.Builder = builder.NewDocker(cfg.BuildWorkDir)
+	} else {
+		logger.Warn("WORKER_BUILDER=dryrun: images are not built")
 	}
-	w := worker.New(pool, deployments.NewService(pool), worker.DryRun{}, wcfg, logger)
+	logger.Warn("WORKER_DEPLOYER=dryrun: nothing is deployed to a cluster")
+	w := worker.New(pool, deployments.NewService(pool), pipeline, wcfg, logger)
 
 	// Health endpoints for Kubernetes probes. Liveness never checks the
 	// database (an outage must not restart workers in a loop).
