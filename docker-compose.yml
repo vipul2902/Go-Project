@@ -1,6 +1,6 @@
 # Local development stack. Services are grouped into profiles so only what is
 # needed runs on a memory-constrained machine:
-#   docker compose --profile deps up -d           # Postgres only; run the API natively (make dev)
+#   docker compose --profile deps up -d           # Postgres + Redis; run the API natively (make dev)
 #   docker compose --profile core up -d           # Postgres + migrations + API in containers
 #   docker compose --profile observability up -d  # Prometheus/Grafana (Phase 16)
 #
@@ -32,6 +32,25 @@ services:
         limits:
           memory: 256m
 
+  redis:
+    profiles: ["deps", "core"]
+    image: redis:7.4-alpine
+    # volatile-lru evicts only keys that have a TTL (rate-limit state) when
+    # memory is full. Keys without a TTL (the Phase 8 job queue) are never
+    # evicted, so pressure cannot silently drop queued deployments.
+    command: ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "volatile-lru", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-16379}:6379" # 16379 avoids a native Redis on 6379
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 96m
+
   migrate:
     profiles: ["core"]
     build:
@@ -56,11 +75,15 @@ services:
       PORT: "8080"
       LOG_LEVEL: info
       DATABASE_URL: postgres://clouddeploy:${POSTGRES_PASSWORD}@postgres:5432/clouddeploy?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     read_only: true
     security_opt:
       - no-new-privileges:true

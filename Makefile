@@ -22,7 +22,7 @@ test: ## Run unit tests with the race detector
 	go test -race -count=1 ./...
 
 .PHONY: test-integration
-test-integration: ## Run integration tests against the compose Postgres (needs make db-up)
+test-integration: ## Run integration tests against compose Postgres + Redis (needs make db-up)
 	@set -a; source .env; set +a; go test -race -count=1 -p 1 -tags integration ./...
 
 .PHONY: cover
@@ -43,7 +43,7 @@ tidy: ## Tidy go.mod
 	go mod tidy
 
 .PHONY: db-up
-db-up: ## Start only Postgres (run the API natively with make dev)
+db-up: ## Start Postgres + Redis (run the API natively with make dev)
 	docker compose --profile deps up -d --wait
 
 .PHONY: migrate

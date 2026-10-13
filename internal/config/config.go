@@ -39,6 +39,8 @@ type Config struct {
 	DBMaxConnLifetime time.Duration
 	DBMaxConnIdleTime time.Duration
 
+	RedisURL string
+
 	JWTSecret       string
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
@@ -70,6 +72,8 @@ func load(getenv func(string) string) (Config, error) {
 		DBMaxConnLifetime: parseDuration(getenv, "DB_MAX_CONN_LIFETIME", 30*time.Minute, &errs),
 		DBMaxConnIdleTime: parseDuration(getenv, "DB_MAX_CONN_IDLE_TIME", 5*time.Minute, &errs),
 
+		RedisURL: getenv("REDIS_URL"),
+
 		JWTSecret: getenv("JWT_SECRET"),
 		// Short-lived access tokens bound the damage of a leaked token;
 		// long-lived refresh tokens are rotated on every use.
@@ -77,6 +81,9 @@ func load(getenv func(string) string) (Config, error) {
 		RefreshTokenTTL: parseDuration(getenv, "REFRESH_TOKEN_TTL", 30*24*time.Hour, &errs),
 	}
 
+	if cfg.RedisURL == "" {
+		errs = append(errs, errors.New("REDIS_URL: required"))
+	}
 	if len(cfg.JWTSecret) < 32 {
 		errs = append(errs, errors.New("JWT_SECRET: required, at least 32 bytes (openssl rand -base64 48)"))
 	}

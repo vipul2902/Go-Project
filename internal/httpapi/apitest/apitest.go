@@ -17,6 +17,7 @@ import (
 
 	"github.com/vipul2902/clouddeploy/internal/database/dbtest"
 	"github.com/vipul2902/clouddeploy/internal/httpapi"
+	"github.com/vipul2902/clouddeploy/internal/redisx/redistest"
 )
 
 // API is a running test server.
@@ -26,17 +27,30 @@ type API struct {
 	Pool *pgxpool.Pool
 }
 
+// Option customizes the application under test.
+type Option func(testing.TB, *httpapi.AppConfig)
+
+// WithRedis enables Redis-backed features (rate limiting) on a clean test DB.
+// Without it, rate limiting is off so unrelated suites stay deterministic.
+func WithRedis() Option {
+	return func(t testing.TB, c *httpapi.AppConfig) { c.Redis = redistest.New(t) }
+}
+
 // New starts the application on an httptest server with a clean database.
-func New(t testing.TB) *API {
+func New(t testing.TB, opts ...Option) *API {
 	t.Helper()
 	pool := dbtest.New(t)
-	h, err := httpapi.NewApp(pool, httpapi.AppConfig{
+	cfg := httpapi.AppConfig{
 		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Version:         "test",
 		JWTSecret:       []byte("apitest-secret-at-least-32-bytes!!"),
 		AccessTokenTTL:  15 * time.Minute,
 		RefreshTokenTTL: time.Hour,
-	})
+	}
+	for _, o := range opts {
+		o(t, &cfg)
+	}
+	h, err := httpapi.NewApp(pool, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

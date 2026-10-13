@@ -15,6 +15,7 @@ import (
 	"github.com/vipul2902/clouddeploy/internal/config"
 	"github.com/vipul2902/clouddeploy/internal/database"
 	"github.com/vipul2902/clouddeploy/internal/httpapi"
+	"github.com/vipul2902/clouddeploy/internal/redisx"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".
@@ -50,7 +51,16 @@ func run() error {
 	defer pool.Close()
 	logger.Info("database connected", "max_conns", cfg.DBMaxConns)
 
+	rdb, err := redisx.Open(ctx, cfg.RedisURL)
+	if err != nil {
+		// Fail fast at startup (misconfiguration). At runtime a Redis outage
+		// only degrades the service: rate limiting fails open.
+		return fmt.Errorf("open redis: %w", err)
+	}
+	defer rdb.Close()
+
 	handler, err := httpapi.NewApp(pool, httpapi.AppConfig{
+		Redis:           rdb,
 		Logger:          logger,
 		Version:         version,
 		JWTSecret:       []byte(cfg.JWTSecret),

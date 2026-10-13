@@ -6,7 +6,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"regexp"
 	"runtime/debug"
 	"time"
@@ -142,4 +144,29 @@ func Chain(h http.Handler, mws ...func(http.Handler) http.Handler) http.Handler 
 		h = mws[i](h)
 	}
 	return h
+}
+
+type ipKey struct{}
+
+// ClientIP stores the caller's IP in the request context. It uses the TCP
+// peer address; X-Forwarded-For is deliberately ignored until a trusted
+// proxy is configured (Phase 10/11), because any client can forge that
+// header — and rate limiting by a forgeable value is no rate limiting.
+func ClientIP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			host = r.RemoteAddr
+		}
+		if ip, err := netip.ParseAddr(host); err == nil {
+			r = r.WithContext(context.WithValue(r.Context(), ipKey{}, ip.Unmap()))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ClientIPFrom returns the IP stored by ClientIP.
+func ClientIPFrom(ctx context.Context) (netip.Addr, bool) {
+	ip, ok := ctx.Value(ipKey{}).(netip.Addr)
+	return ip, ok
 }

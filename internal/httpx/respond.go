@@ -20,6 +20,7 @@ const (
 	CodeForbidden       = "FORBIDDEN"
 	CodeConflict        = "CONFLICT"
 	CodePayloadTooLarge = "PAYLOAD_TOO_LARGE"
+	CodeRateLimited     = "RATE_LIMITED"
 	CodeInternal        = "INTERNAL_ERROR"
 	CodeUnavailable     = "SERVICE_UNAVAILABLE"
 )
@@ -66,6 +67,11 @@ func WriteValidationError(w http.ResponseWriter, r *http.Request, details map[st
 	writeError(w, r, http.StatusUnprocessableEntity, ErrorDetail{
 		Code: CodeValidation, Message: "request validation failed", Details: details,
 	})
+}
+
+// TooManyRequests writes a 429. Retry-After is set by the rate limiter.
+func TooManyRequests(w http.ResponseWriter, r *http.Request) {
+	WriteError(w, r, http.StatusTooManyRequests, CodeRateLimited, "too many requests; retry after the time in the Retry-After header")
 }
 
 // WriteInternalError logs err with the request ID and returns a generic 500.

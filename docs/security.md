@@ -65,6 +65,24 @@ Roles are hierarchical, `admin ⊃ developer ⊃ viewer`, and unknown roles are 
   - CPU, memory and replica counts are capped so one tenant can't exhaust the cluster.
 - Repository URLs with embedded credentials are rejected (Phase 4).
 
+## Rate limiting
+
+The limiter uses GCRA in Redis; the design is in [ADR-003](adr/ADR-003-redis.md). Limits apply per subject:
+
+| Rule | Limit | Key |
+|---|---|---|
+| Login, per IP | 20 per minute | Client IP |
+| Login, per account | 10 per 15 minutes; **reset by a successful login** | SHA-256 of the email (no raw personal data in Redis) |
+| Registration | 5 per hour | Client IP |
+| Token refresh | 60 per minute | Client IP |
+| Authenticated API | 600 per minute | User ID (applied after authentication) |
+
+How the limits behave:
+- A denied request gets `429 RATE_LIMITED` with `Retry-After`. Every limited response carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`.
+- The login limit is checked **before** the password, so a locked-out attacker can't use the endpoint to test whether a guessed password is correct.
+- Known trade-off: the per-account limit lets an attacker lock a victim out for up to 15 minutes. That's accepted because it's bounded and visible, and far better than unlimited guessing.
+- If Redis is down, rate limiting **fails open**, which is logged and reported as `degraded` by `/readyz`.
+
 ## Request handling
 
 - Request bodies are limited to 1 MiB. Unknown JSON fields are rejected, which prevents mass-assignment tricks such as `"is_admin": true`, and the body must contain exactly one JSON object.

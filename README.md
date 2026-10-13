@@ -2,7 +2,7 @@
 
 A cloud-native deployment platform: register an application, define its environments, build it, deploy it to Kubernetes, and track status, health, logs and history — with Azure infrastructure provisioned by Terraform.
 
-> **Status:** Phase 6 (deployment domain, state machine, idempotency, audit log) complete. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
+> **Status:** Phase 7 (Redis rate limiting) complete. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
 
 ## Architecture (target)
 
@@ -31,7 +31,7 @@ Prerequisites: Go 1.27+, Docker (Colima works), GNU Make.
 
 ```bash
 cp .env.example .env      # then replace every change-me value (openssl rand -hex 24)
-make db-up                # Postgres on 127.0.0.1:15432
+make db-up                # Postgres on 127.0.0.1:15432, Redis on 127.0.0.1:16379
 make migrate seed         # schema + dev data
 make dev                  # run the API natively on :8080
 curl localhost:8080/readyz
@@ -61,6 +61,7 @@ All configuration comes from environment variables (see [.env.example](.env.exam
 | `DATABASE_URL` | *(required)* | PostgreSQL connection string |
 | `DB_MAX_CONNS` / `DB_MIN_CONNS` | `10` / `1` | Pool bounds. Keep `replicas × max` below the server's `max_connections`. |
 | `DB_MAX_CONN_LIFETIME` / `DB_MAX_CONN_IDLE_TIME` | `30m` / `5m` | Connection recycling |
+| `REDIS_URL` | *(required)* | Used for rate limiting. Startup fails if it's unreachable; at runtime an outage fails open (see ADR-003). |
 | `JWT_SECRET` | *(required)* | At least 32 bytes. Generate with `openssl rand -base64 48`. |
 | `ACCESS_TOKEN_TTL` / `REFRESH_TOKEN_TTL` | `15m` / `720h` | Token lifetimes |
 
@@ -69,7 +70,7 @@ All configuration comes from environment variables (see [.env.example](.env.exam
 | Endpoint | Purpose |
 |---|---|
 | `GET /healthz` | **Liveness** check. The process is up. It never checks dependencies, so a database outage won't cause restart loops. |
-| `GET /readyz` | **Readiness** check. Checks PostgreSQL and returns `503` if it's unreachable, so traffic is routed away from this instance. |
+| `GET /readyz` | **Readiness** check. Returns `503` if PostgreSQL is unreachable, so traffic is routed away from this instance. If Redis is down it returns `degraded` with status 200, because the API still works with rate limiting off. |
 | `/api/v1/auth/*` | Register, login, refresh, logout, me |
 | `/api/v1/organizations/*` | Organizations and member management (RBAC) |
 | `/api/v1/projects/*` | Project CRUD with cursor pagination and ETag concurrency control |
@@ -96,7 +97,7 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 
 ## Roadmap
 
-0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis · 8 async worker · 9 image builds · 10 local k8s · 11 Helm · 12 monitoring/logs · 13 rollback · 14 dashboard · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
+0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker · 9 image builds · 10 local k8s · 11 Helm · 12 monitoring/logs · 13 rollback · 14 dashboard · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
 
 ## Documentation
 

@@ -9,8 +9,6 @@ package audit
 import (
 	"context"
 	"errors"
-	"net"
-	"net/http"
 	"net/netip"
 	"time"
 
@@ -50,27 +48,8 @@ func Record(ctx context.Context, q Querier, actor Actor, action, resourceType, r
 	return err
 }
 
-type ipKey struct{}
-
-// ClientIP stores the caller's IP in the request context for Record.
-// It uses the TCP peer address; X-Forwarded-For is deliberately ignored
-// until a trusted proxy is configured (Phase 10/11), because any client can
-// forge that header.
-func ClientIP(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			host = r.RemoteAddr
-		}
-		if ip, err := netip.ParseAddr(host); err == nil {
-			r = r.WithContext(context.WithValue(r.Context(), ipKey{}, ip.Unmap()))
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 func clientIP(ctx context.Context) *netip.Addr {
-	if ip, ok := ctx.Value(ipKey{}).(netip.Addr); ok {
+	if ip, ok := middleware.ClientIPFrom(ctx); ok {
 		return &ip
 	}
 	return nil
