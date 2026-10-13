@@ -142,3 +142,61 @@ func TestFailOpenWhenRedisUnavailable(t *testing.T) {
 		}
 	}
 }
+
+// One Redis round trip running the GCRA script: the per-request cost of
+// rate limiting (local Redis; add network latency in production).
+func BenchmarkAllow(b *testing.B) {
+	l := ratelimit.New(redistest.New(b), logger)
+	rule := ratelimit.Rule{Name: "bench", Limit: 1 << 30, Period: time.Hour}
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := l.Allow(ctx, rule, "k"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// A rule faster than one request per millisecond used to fail open (the
+// millisecond interval rounded to 0). It must now limit precisely: requests
+// are sent concurrently so they outrun the refill rate, and the number
+// allowed must not exceed burst + refill during the run.
+func TestSubMillisecondIntervalRule(t *testing.T) {
+	rdb := redistest.New(t)
+	l := ratelimit.New(rdb, logger)
+	// 500µs interval (sub-millisecond) but only 2,000/s with a burst of 100:
+	// far below Redis throughput, so a broken (unlimited) limiter would let
+	// nearly all 15,000 requests through while a correct one allows ~2,000.
+	rule := ratelimit.Rule{Name: "fast", Limit: 100, Period: 50 * time.Millisecond}
+	var allowed, errs atomic.Int64
+	var wg sync.WaitGroup
+	// Measure on Redis's clock: the limiter uses it, and the host and VM
+	// clocks drift slightly (a host-clock bound was flaky under -race).
+	start := rdb.Time(context.Background()).Val()
+	for range 50 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 300 {
+				res, err := l.Allow(context.Background(), rule, "k")
+				if err != nil {
+					errs.Add(1)
+					continue
+				}
+				if res.Allowed {
+					allowed.Add(1)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	elapsed := rdb.Time(context.Background()).Val().Sub(start)
+	if errs.Load() > 0 {
+		t.Fatalf("%d errors: a fast rule must not error (that fails open)", errs.Load())
+	}
+	maxAllowed := int64(100) + int64(elapsed.Seconds()*2_000) + 1
+	if a := allowed.Load(); a < 100 || a > maxAllowed {
+		t.Fatalf("allowed %d of 15,000 in %v; want between 100 and %d", a, elapsed.Round(time.Millisecond), maxAllowed)
+	}
+	t.Logf("allowed %d of 15,000 in %v (bound %d)", allowed.Load(), elapsed.Round(time.Millisecond), maxAllowed)
+}

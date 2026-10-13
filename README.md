@@ -2,7 +2,7 @@
 
 A cloud-native deployment platform: register an application, define its environments, build it, deploy it to Kubernetes, and track status, health, logs and history — with Azure infrastructure provisioned by Terraform.
 
-> **Status:** Phase 14 (React dashboard) complete. A web UI for the whole platform, served by nginx alongside the API in Kubernetes. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
+> **Status:** Phase 15 (test hardening) complete. Fuzzing (including differential fuzzing against Kubernetes), model-based tests, a route authorization sweep, benchmarks and stress runs. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
 
 ## Screenshots
 
@@ -52,6 +52,8 @@ curl localhost:8080/readyz
 
 | Command | Purpose |
 |---|---|
+| `make test-all` | Lint, unit, integration, frontend and Helm checks (add `make test-k8s` for cluster tests) |
+| `make fuzz` / `make bench` / `make cover` / `make test-stress` | Fuzzing, benchmarks, combined coverage, 3× race-detector stress run (see [docs/testing.md](docs/testing.md)) |
 | `make test` | Unit tests with the race detector |
 | `make test-integration` | Integration tests against real Postgres (`clouddeploy_test` database) |
 | `make db-up` / `make migrate` / `make seed` / `make psql` | Database workflow (see [docs/database.md](docs/database.md)) |
@@ -131,11 +133,12 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 
 ## Roadmap
 
-0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s ✅ · 11 Helm ✅ · 12 monitoring/logs ✅ · 13 rollback ✅ · 14 dashboard ✅ · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
+0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s ✅ · 11 Helm ✅ · 12 monitoring/logs ✅ · 13 rollback ✅ · 14 dashboard ✅ · 15 test hardening ✅ · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
 
 ## Documentation
 
 - [API reference](docs/api.md)
+- [Testing strategy: fuzzing, model-based tests, benchmarks](docs/testing.md)
 - [Dashboard](docs/frontend.md)
 - [Architecture decisions](docs/adr/)
 - [Local development](docs/local-development.md)

@@ -19,6 +19,11 @@ const (
 	argonThreads   = 1
 	argonKeyLen    = 32
 	argonSaltLen   = 16
+
+	// Upper bounds accepted when verifying (headroom for raising costs later).
+	maxArgonMemoryKiB = 256 * 1024
+	maxArgonTime      = 10
+	maxArgonThreads   = 16
 )
 
 // ErrInvalidHash means a stored hash is malformed.
@@ -55,13 +60,19 @@ func VerifyPassword(password, encoded string) (bool, error) {
 	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &time, &threads); err != nil {
 		return false, ErrInvalidHash
 	}
+	// The cost parameters come from the stored hash. Bound them so a corrupted
+	// or tampered row cannot make one login allocate gigabytes or spin for
+	// minutes (argon2 allocates m KiB per call).
+	if memory < 1024 || memory > maxArgonMemoryKiB || time < 1 || time > maxArgonTime || threads < 1 || threads > maxArgonThreads {
+		return false, ErrInvalidHash
+	}
 	b64 := base64.RawStdEncoding
 	salt, err := b64.DecodeString(parts[4])
-	if err != nil {
+	if err != nil || len(salt) < 8 || len(salt) > 64 {
 		return false, ErrInvalidHash
 	}
 	want, err := b64.DecodeString(parts[5])
-	if err != nil || len(want) == 0 {
+	if err != nil || len(want) < 16 || len(want) > 64 {
 		return false, ErrInvalidHash
 	}
 	got := argon2.IDKey([]byte(password), salt, time, memory, threads, uint32(len(want)))

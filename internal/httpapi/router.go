@@ -44,9 +44,36 @@ type Deps struct {
 	Monitoring    *monitoring.Handler
 }
 
+// recordingMux records every registered pattern.
+type recordingMux struct {
+	*http.ServeMux
+	patterns []string
+}
+
+func (m *recordingMux) Handle(p string, h http.Handler) {
+	m.patterns = append(m.patterns, p)
+	m.ServeMux.Handle(p, h)
+}
+
+func (m *recordingMux) HandleFunc(p string, h func(http.ResponseWriter, *http.Request)) {
+	m.patterns = append(m.patterns, p)
+	m.ServeMux.HandleFunc(p, h)
+}
+
 // NewRouter builds the root handler with all routes and middleware.
 func NewRouter(d Deps) http.Handler {
-	mux := http.NewServeMux()
+	h, _ := buildRouter(d)
+	return h
+}
+
+// Routes returns every route pattern registered for d, e.g. "GET /healthz".
+func Routes(d Deps) []string {
+	_, patterns := buildRouter(d)
+	return patterns
+}
+
+func buildRouter(d Deps) (http.Handler, []string) {
+	mux := &recordingMux{ServeMux: http.NewServeMux()}
 
 	mux.HandleFunc("GET /healthz", handleLiveness(d.Version))
 	mux.HandleFunc("GET /readyz", handleReadiness(d.Logger, d.Checks, d.SoftChecks))
@@ -85,7 +112,7 @@ func NewRouter(d Deps) http.Handler {
 			httpx.WriteError(w, r, http.StatusInternalServerError, httpx.CodeInternal, "internal server error")
 		}),
 		middleware.SecureHeaders,
-	)
+	), mux.patterns
 }
 
 // handleLiveness answers "is the process alive?". It must not check

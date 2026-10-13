@@ -39,13 +39,30 @@ type AppConfig struct {
 // the composition root shared by cmd/api and the integration test harness,
 // so tests exercise exactly the production wiring.
 func NewApp(pool *pgxpool.Pool, cfg AppConfig) (http.Handler, error) {
-	tokens, err := auth.NewTokenIssuer(cfg.JWTSecret, cfg.AccessTokenTTL)
+	d, err := appDeps(pool, cfg)
 	if err != nil {
 		return nil, err
 	}
-	authSvc, err := auth.NewService(pool, tokens, cfg.RefreshTokenTTL)
+	return NewRouter(d), nil
+}
+
+// AppRoutes lists every route of the production wiring.
+func AppRoutes(pool *pgxpool.Pool, cfg AppConfig) ([]string, error) {
+	d, err := appDeps(pool, cfg)
 	if err != nil {
 		return nil, err
+	}
+	return Routes(d), nil
+}
+
+func appDeps(pool *pgxpool.Pool, cfg AppConfig) (Deps, error) {
+	tokens, err := auth.NewTokenIssuer(cfg.JWTSecret, cfg.AccessTokenTTL)
+	if err != nil {
+		return Deps{}, err
+	}
+	authSvc, err := auth.NewService(pool, tokens, cfg.RefreshTokenTTL)
+	if err != nil {
+		return Deps{}, err
 	}
 	limiter := ratelimit.New(cfg.Redis, cfg.Logger)
 	var soft map[string]ReadinessCheck
@@ -59,7 +76,7 @@ func NewApp(pool *pgxpool.Pool, cfg AppConfig) (http.Handler, error) {
 	if cfg.Kube != nil {
 		inspector = kube.NewInspector(cfg.Kube)
 	}
-	return NewRouter(Deps{
+	return Deps{
 		Logger:         cfg.Logger,
 		Version:        cfg.Version,
 		Checks:         map[string]ReadinessCheck{"postgres": pool.Ping},
@@ -72,5 +89,5 @@ func NewApp(pool *pgxpool.Pool, cfg AppConfig) (http.Handler, error) {
 		Environments:   environments.NewHandler(envSvc, projectSvc),
 		Deployments:    deployments.NewHandler(deploySvc, projectSvc, envSvc),
 		Monitoring:     monitoring.NewHandler(projectSvc, envSvc, deploySvc, inspector),
-	}), nil
+	}, nil
 }

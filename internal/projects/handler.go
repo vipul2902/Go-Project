@@ -18,7 +18,7 @@ type Handler struct {
 func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
 
 // Routes registers endpoints; all require authentication.
-func (h *Handler) Routes(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
+func (h *Handler) Routes(mux httpx.Router, requireAuth func(http.Handler) http.Handler) {
 	handle := func(pattern string, fn http.HandlerFunc) { mux.Handle(pattern, requireAuth(fn)) }
 	handle("GET /api/v1/projects", h.list)
 	handle("POST /api/v1/projects", h.create)

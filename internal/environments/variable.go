@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 // Variable is one environment variable. Exactly one of Value (plain config)
@@ -25,9 +27,6 @@ type VariableInput struct {
 
 var (
 	keyRE = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
-	// secretRefRE is "<secret-name>/<key>": a Kubernetes Secret in the
-	// environment's own namespace (so one tenant cannot reference another's).
-	secretRefRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?/[A-Za-z0-9._-]{1,253}$`)
 	// sensitiveKeyRE flags names that almost always hold credentials.
 	sensitiveKeyRE = regexp.MustCompile(`(PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|PRIVATE_?KEY|CREDENTIAL|ACCESS_?KEY)`)
 )
@@ -49,8 +48,8 @@ func validateVariable(key string, in VariableInput) map[string]string {
 	switch {
 	case (in.Value == nil) == (in.SecretRef == nil):
 		errs["body"] = "exactly one of value or secret_ref is required"
-	case in.SecretRef != nil && !secretRefRE.MatchString(*in.SecretRef):
-		errs["secret_ref"] = `must be "<secret-name>/<key>", e.g. "db-credentials/password"`
+	case in.SecretRef != nil && !validSecretRef(*in.SecretRef):
+		errs["secret_ref"] = `must be "<secret-name>/<key>" naming a valid Kubernetes Secret and key, e.g. "db-credentials/password"`
 	case in.Value != nil && len(*in.Value) > MaxVariableValueLen:
 		errs["value"] = "must be at most 32 KiB"
 	case in.Value != nil && sensitiveKeyRE.MatchString(key):
@@ -58,4 +57,14 @@ func validateVariable(key string, in VariableInput) map[string]string {
 		errs["value"] = "this key looks like a credential; store it in a Kubernetes Secret and set secret_ref instead"
 	}
 	return errs
+}
+
+// validSecretRef checks "<secret-name>/<key>": a Secret in the environment's
+// own namespace (no namespace part, so one tenant cannot reference another's).
+// It uses Kubernetes' own validators rather than a hand-written regex: a
+// differential fuzz test found the earlier regex accepted names like "a..b"
+// and keys "." and "..", which Kubernetes rejects at deploy time.
+func validSecretRef(ref string) bool {
+	name, key, ok := strings.Cut(ref, "/")
+	return ok && len(validation.IsDNS1123Subdomain(name)) == 0 && len(validation.IsConfigMapKey(key)) == 0
 }

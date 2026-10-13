@@ -137,3 +137,11 @@ func TestValidateRegister(t *testing.T) {
 		t.Error("over-long password accepted (argon2 DoS risk)")
 	}
 }
+
+func TestDeclaredRateLimitRulesAreValid(t *testing.T) {
+	for _, r := range []interface{ Validate() error }{LoginPerIP, LoginPerAccount, RegisterPerIP, RefreshPerIP, APIPerUser} {
+		if err := r.Validate(); err != nil {
+			t.Error(err)
+		}
+	}
+}

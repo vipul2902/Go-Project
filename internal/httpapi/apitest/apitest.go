@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/vipul2902/clouddeploy/internal/database/dbtest"
 	"github.com/vipul2902/clouddeploy/internal/httpapi"
@@ -34,6 +35,11 @@ type Option func(testing.TB, *httpapi.AppConfig)
 // Without it, rate limiting is off so unrelated suites stay deterministic.
 func WithRedis() Option {
 	return func(t testing.TB, c *httpapi.AppConfig) { c.Redis = redistest.New(t) }
+}
+
+// WithKube enables monitoring against a real cluster.
+func WithKube(cs kubernetes.Interface) Option {
+	return func(_ testing.TB, c *httpapi.AppConfig) { c.Kube = cs }
 }
 
 // New starts the application on an httptest server with a clean database.

@@ -33,20 +33,40 @@ test-integration: ## Integration tests: compose Postgres + Redis, local git + Do
 	@set -a; source .env; set +a; go test -race -count=1 -p 1 -tags integration ./...
 
 .PHONY: test-k8s
-test-k8s: ## Kubernetes deployer tests against the local cluster (needs make k8s-up)
-	KUBE_CONTEXT=$${KUBE_CONTEXT:-colima} go test -count=1 -tags k8s -timeout 10m ./internal/kube/
+test-k8s: ## Kubernetes tests against the local cluster (needs make k8s-up and make db-up)
+	@set -a; source .env; set +a; KUBE_CONTEXT=$${KUBE_CONTEXT:-colima} \
+		go test -count=1 -p 1 -tags k8s -timeout 10m ./internal/kube/ ./internal/monitoring/
 
 .PHONY: web-dev
 web-dev: ## Dashboard dev server on :5173 (proxies /api to the API on :8080)
 	cd web && npm run dev
 
 .PHONY: web-check
-web-check: ## Type-check, lint, test and build the dashboard
-	cd web && npm run typecheck && npm run lint && npm test && npm run build
+web-check: ## Type-check, lint, test (with coverage) and build the dashboard
+	cd web && npm run typecheck && npm run lint && npm run coverage && npm run build
 
 .PHONY: cover
-cover: ## Run tests with coverage report
-	go test -race -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | tail -1
+cover: ## Combined unit + integration coverage (needs make db-up); writes coverage.out
+	@set -a; source .env; set +a; go test -count=1 -p 1 -tags integration -coverpkg=./internal/... \
+		-coverprofile=coverage.out ./... >/dev/null && go tool cover -func=coverage.out | tail -1
+
+.PHONY: fuzz
+fuzz: ## Run every fuzz target (FUZZTIME=20s each by default)
+	@for t in $$(grep -rhoE '^func (Fuzz[A-Za-z]+)' --include='*_test.go' internal | awk '{print $$2}' | sort -u); do \
+		pkg=$$(grep -rlE "^func $$t\(" --include='*_test.go' internal | xargs dirname); \
+		printf "%-40s " $$t; go test -run '^$$' -fuzz "^$$t\$$" -fuzztime $${FUZZTIME:-20s} ./$$pkg/ 2>&1 | tail -1; \
+	done
+
+.PHONY: bench
+bench: ## Benchmarks for hot paths (password hashing, JWT, client IP, log sanitizing, manifests)
+	go test -run '^$$' -bench . -benchmem ./internal/...
+
+.PHONY: test-stress
+test-stress: ## Integration suite 3x under the race detector, to surface flaky tests
+	@set -a; source .env; set +a; go test -race -count=3 -p 1 -tags integration ./...
+
+.PHONY: test-all
+test-all: lint test test-integration web-check helm-lint ## Everything except cluster tests (add make test-k8s)
 
 .PHONY: fmt
 fmt: ## Format code

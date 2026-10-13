@@ -24,7 +24,7 @@ func NewHandler(svc *Service, limiter *ratelimit.Limiter) *Handler {
 }
 
 // Routes registers the auth endpoints on mux.
-func (h *Handler) Routes(mux *http.ServeMux) {
+func (h *Handler) Routes(mux httpx.Router) {
 	mux.HandleFunc("POST /api/v1/auth/register", h.register)
 	mux.HandleFunc("POST /api/v1/auth/login", h.login)
 	mux.HandleFunc("POST /api/v1/auth/refresh", h.refresh)

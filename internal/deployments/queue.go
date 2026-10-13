@@ -164,15 +164,22 @@ func (s *Service) AppendLog(ctx context.Context, id, level, message string) erro
 }
 
 func appendLog(ctx context.Context, q querier, id, level, message string) error {
-	if len(message) > maxLogMessage {
-		message = message[:maxLogMessage]
-		for !utf8.ValidString(message) { // do not split a multi-byte rune
-			message = message[:len(message)-1]
-		}
-		message += " …[truncated]"
-	}
-	_, err := q.Exec(ctx, `INSERT INTO deployment_logs (deployment_id, level, message) VALUES ($1, $2, $3)`, id, level, message)
+	_, err := q.Exec(ctx, `INSERT INTO deployment_logs (deployment_id, level, message) VALUES ($1, $2, $3)`,
+		id, level, truncateMessage(message, maxLogMessage))
 	return err
+}
+
+// truncateMessage caps message at max bytes without splitting a multi-byte
+// UTF-8 character (Postgres rejects invalid UTF-8 in text columns).
+func truncateMessage(message string, max int) string {
+	if len(message) <= max {
+		return message
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(message[cut]) {
+		cut--
+	}
+	return message[:cut] + " …[truncated]"
 }
 
 // Logs returns log lines with id > after, oldest first. Clients tail a

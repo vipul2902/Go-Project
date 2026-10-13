@@ -30,7 +30,7 @@ func NewHandler(svc *Service, projectSvc *projects.Service, envSvc *environments
 }
 
 // Routes registers endpoints; all require authentication.
-func (h *Handler) Routes(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
+func (h *Handler) Routes(mux httpx.Router, requireAuth func(http.Handler) http.Handler) {
 	handle := func(pattern string, fn http.HandlerFunc) { mux.Handle(pattern, requireAuth(fn)) }
 	handle("GET /api/v1/dashboard", h.summary)
 	handle("POST /api/v1/deployments", h.create)

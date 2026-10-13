@@ -156,8 +156,11 @@ func (r Resources) validate(errs map[string]string) {
 var (
 	cpuMilliRE = regexp.MustCompile(`^([0-9]{1,6})m$`)
 	cpuCoreRE  = regexp.MustCompile(`^([0-9]{1,3})(\.[0-9]{1,3})?$`)
-	memRE      = regexp.MustCompile(`^([0-9]{1,12})(Ki|Mi|Gi|K|M|G)?$`)
-	memUnits   = map[string]int64{"": 1, "K": 1e3, "M": 1e6, "G": 1e9, "Ki": 1 << 10, "Mi": 1 << 20, "Gi": 1 << 30}
+	// Kubernetes suffixes: decimal k (lowercase!), M, G; binary Ki, Mi, Gi.
+	// "K" is NOT valid; a differential fuzz test against resource.ParseQuantity
+	// caught the earlier table accepting it.
+	memRE    = regexp.MustCompile(`^([0-9]{1,12})(Ki|Mi|Gi|k|M|G)?$`)
+	memUnits = map[string]int64{"": 1, "k": 1e3, "M": 1e6, "G": 1e9, "Ki": 1 << 10, "Mi": 1 << 20, "Gi": 1 << 30}
 )
 
 // ParseCPU converts a Kubernetes CPU quantity ("250m", "0.5", "2") to
