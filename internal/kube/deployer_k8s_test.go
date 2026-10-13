@@ -277,3 +277,93 @@ func TestCancelStopsWaiting(t *testing.T) {
 		t.Fatal("deploy did not return after cancel")
 	}
 }
+
+var tickerImage = "cdtest/ticker:1"
+
+// buildTicker: an app that serves HTTP (so it becomes ready) and prints a
+// numbered line every second (so it has logs to read and follow).
+func buildTicker(t *testing.T) {
+	t.Helper()
+	buildImages(t)
+	cmd := exec.Command("docker", "build", "-q", "-t", tickerImage, "-")
+	cmd.Stdin = strings.NewReader("FROM " + baseImage + "\nRUN mkdir -p /www && echo ok > /www/healthz\n" +
+		"CMD [\"sh\",\"-c\",\"httpd -p 8080 -h /www; i=0; while true; do echo tick $i; i=$((i+1)); sleep 1; done\"]\n")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build ticker: %v\n%s", err, out)
+	}
+}
+
+func target(job deployments.Job) Target {
+	return Target{Namespace: job.Deployment.Config.Namespace, Name: job.ProjectName, Instance: job.ProjectName + "-" + job.Deployment.Environment}
+}
+
+func TestInspectorHealthAndLogs(t *testing.T) {
+	buildTicker(t)
+	cs := clientset(t)
+	in := NewInspector(cs)
+	job := newJob(t, cs)
+	ctx := context.Background()
+
+	if h, err := in.Health(ctx, target(job)); err != nil || h.Status != StatusNotDeployed {
+		t.Fatalf("before deploy: %+v %v", h, err)
+	}
+	if err, l := deploy(t, NewDeployer(cs), job, tickerImage); err != nil {
+		t.Fatalf("deploy: %v\n%s", err, l.text())
+	}
+
+	h, err := in.Health(ctx, target(job))
+	if err != nil || h.Status != StatusHealthy || h.Replicas.Available != 2 || len(h.Pods) != 2 || h.LiveDeploymentID != job.Deployment.ID {
+		t.Fatalf("healthy: %+v %v", h, err)
+	}
+	for _, p := range h.Pods {
+		if !p.Ready || p.DeploymentID != job.Deployment.ID {
+			t.Errorf("pod %+v", p)
+		}
+	}
+
+	time.Sleep(3 * time.Second) // let each pod print a few ticks
+	lines, err := in.Logs(ctx, target(job), LogOptions{TailLines: 5})
+	if err != nil || len(lines) < 4 {
+		t.Fatalf("logs: %d lines, %v", len(lines), err)
+	}
+	pods := map[string]bool{}
+	for i, l := range lines {
+		pods[l.Pod] = true
+		if !strings.HasPrefix(l.Line, "tick ") {
+			t.Errorf("unexpected line %q", l.Line)
+		}
+		if i > 0 && l.Time.Before(lines[i-1].Time) {
+			t.Error("lines from several pods are not merged in time order")
+		}
+	}
+	if len(pods) != 2 {
+		t.Errorf("lines came from %d pods, want 2", len(pods))
+	}
+	if _, err := in.Logs(ctx, target(job), LogOptions{TailLines: 5, Pod: "someone-elses-pod"}); !errors.Is(err, ErrPodNotFound) {
+		t.Errorf("foreign pod: %v", err)
+	}
+
+	// Follow receives lines printed after it started.
+	fctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	var mu sync.Mutex
+	var followed []LogLine
+	_ = in.Follow(fctx, target(job), LogOptions{TailLines: 1}, func(l LogLine) { mu.Lock(); followed = append(followed, l); mu.Unlock() })
+	if len(followed) < 4 { // ~2 pods x 3-4 seconds
+		t.Errorf("followed only %d lines", len(followed))
+	}
+
+	// A crash-looping release is reported as failing (not "progressing")
+	// while the previous release keeps serving.
+	if err, _ := deploy(t, NewDeployer(cs), release(job), crashImage); err == nil {
+		t.Fatal("crash release succeeded")
+	}
+	h, _ = in.Health(ctx, target(job))
+	reasons := map[string]bool{}
+	for _, p := range h.Pods {
+		reasons[p.Reason] = true
+	}
+	if h.Status != StatusFailing || !reasons["CrashLoopBackOff"] || h.Replicas.Available != 2 {
+		t.Errorf("after crash release: status=%s available=%d reasons=%v", h.Status, h.Replicas.Available, reasons)
+	}
+}

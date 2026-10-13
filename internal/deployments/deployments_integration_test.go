@@ -3,13 +3,17 @@
 package deployments_test
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/vipul2902/clouddeploy/internal/audit"
 	"github.com/vipul2902/clouddeploy/internal/deployments"
@@ -400,5 +404,143 @@ func TestAuditTrail(t *testing.T) {
 	filtered := f.api.Do(http.MethodGet, auditPath+"?action=variable.set", f.admin.Token, nil)
 	if len(filtered.Data()) != 2 {
 		t.Errorf("action filter: %d entries", len(filtered.Data()))
+	}
+}
+
+// sseEvent is one parsed Server-Sent Event.
+type sseEvent struct{ name, id, data string }
+
+// readSSE consumes events from body until "end" or EOF.
+func readSSE(t *testing.T, body io.Reader, out chan<- sseEvent) {
+	sc := bufio.NewScanner(body)
+	var ev sseEvent
+	for sc.Scan() {
+		line := sc.Text()
+		switch {
+		case line == "":
+			if ev.name != "" {
+				out <- ev
+				if ev.name == "end" {
+					close(out)
+					return
+				}
+			}
+			ev = sseEvent{}
+		case strings.HasPrefix(line, "event: "):
+			ev.name = strings.TrimPrefix(line, "event: ")
+		case strings.HasPrefix(line, "id: "):
+			ev.id = strings.TrimPrefix(line, "id: ")
+		case strings.HasPrefix(line, "data: "):
+			ev.data = strings.TrimPrefix(line, "data: ")
+		}
+	}
+	close(out)
+}
+
+// The client follows a running deployment's pipeline log: it must receive
+// every line in order, including ones written while it is connected, then
+// an "end" event carrying the final status.
+func TestFollowPipelineLogsOverSSE(t *testing.T) {
+	f := setup(t)
+	svc := deployments.NewService(f.api.Pool)
+	id := f.deploy(f.dev.Token, "development", "abc1234").Str("id")
+	svc.AppendLog(t.Context(), id, "info", "line 1 (before connecting)")
+
+	req, _ := http.NewRequest(http.MethodGet, f.api.URL+"/api/v1/deployments/"+id+"/logs?follow=true", nil)
+	req.Header.Set("Authorization", "Bearer "+f.viewer.Token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("content type %q", ct)
+	}
+	events := make(chan sseEvent, 100)
+	go readSSE(t, resp.Body, events)
+
+	// The "worker" writes while the client is connected.
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		svc.Transition(context.Background(), id, deployments.StatusBuilding, "")
+		svc.AppendLog(context.Background(), id, "info", "line 2")
+		svc.Transition(context.Background(), id, deployments.StatusDeploying, "")
+		svc.AppendLog(context.Background(), id, "info", "line 3")
+		svc.Complete(context.Background(), id, deployments.StatusFailed, "rollout timed out")
+	}()
+
+	var got []string
+	var end sseEvent
+	timeout := time.After(10 * time.Second)
+loop:
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				break loop
+			}
+			if ev.name == "end" {
+				end = ev
+				continue
+			}
+			var l deployments.LogLine
+			_ = json.Unmarshal([]byte(ev.data), &l)
+			if ev.id != fmt.Sprint(l.ID) {
+				t.Errorf("event id %s != line id %d", ev.id, l.ID)
+			}
+			got = append(got, l.Message)
+		case <-timeout:
+			t.Fatalf("stream did not end; got %v", got)
+		}
+	}
+	if strings.Join(got, "|") != "line 1 (before connecting)|line 2|line 3" {
+		t.Errorf("lines = %v", got)
+	}
+	if !strings.Contains(end.data, `"status":"FAILED"`) || !strings.Contains(end.data, "rollout timed out") {
+		t.Errorf("end event = %q", end.data)
+	}
+}
+
+// A reconnecting EventSource sends Last-Event-ID; nothing is repeated.
+func TestFollowResumesFromLastEventID(t *testing.T) {
+	f := setup(t)
+	svc := deployments.NewService(f.api.Pool)
+	id := f.deploy(f.dev.Token, "development", "abc1234").Str("id")
+	for i := range 3 {
+		svc.AppendLog(t.Context(), id, "info", fmt.Sprintf("line %d", i+1))
+	}
+	svc.Transition(t.Context(), id, deployments.StatusFailed, "x")
+	lines, _ := svc.Logs(t.Context(), id, 0, 10)
+
+	req, _ := http.NewRequest(http.MethodGet, f.api.URL+"/api/v1/deployments/"+id+"/logs?follow=true", nil)
+	req.Header.Set("Authorization", "Bearer "+f.viewer.Token)
+	req.Header.Set("Last-Event-ID", fmt.Sprint(lines[1].ID)) // already saw lines 1-2
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	events := make(chan sseEvent, 10)
+	go readSSE(t, resp.Body, events)
+	var got []string
+	for ev := range events {
+		if ev.name == "log" {
+			var l deployments.LogLine
+			_ = json.Unmarshal([]byte(ev.data), &l)
+			got = append(got, l.Message)
+		}
+	}
+	if strings.Join(got, "|") != "line 3" {
+		t.Errorf("resumed lines = %v, want only line 3", got)
+	}
+}
+
+func TestMonitoringWithoutClusterIs503(t *testing.T) {
+	f := setup(t)
+	for _, path := range []string{"/health", "/logs"} {
+		res := f.api.Do(http.MethodGet, "/api/v1/projects/"+f.projectID+"/environments/development"+path, f.admin.Token, nil)
+		if res.Status != http.StatusServiceUnavailable || res.ErrCode() != "MONITORING_UNAVAILABLE" {
+			t.Errorf("%s: %d %v", path, res.Status, res.Body)
+		}
 	}
 }

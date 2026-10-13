@@ -92,9 +92,13 @@ helm-lint: ## Lint the chart with every values file and check its guards
 	@echo "helm-lint: ok"
 
 .PHONY: k8s-images
-k8s-images: ## Build the app and dev worker-builder images into the cluster's Docker
-	docker build -q -t clouddeploy:dev .
-	docker build -q --target worker-builder -t clouddeploy-worker-builder:dev .
+k8s-images: ## Build the app and dev worker-builder images, tagged by content digest
+	@# Immutable tags: a mutable tag like "dev" would leave the Deployment spec
+	@# unchanged after a rebuild, so Kubernetes would never roll the pods.
+	@id=$$(docker build -q -t clouddeploy:dev .) && tag=dev-$$(echo $$id | cut -c8-19) && \
+		docker tag clouddeploy:dev clouddeploy:$$tag && echo $$tag > .k8s-image-tag && echo "app image: clouddeploy:$$tag"
+	@id=$$(docker build -q --target worker-builder -t clouddeploy-worker-builder:dev .) && tag=dev-$$(echo $$id | cut -c8-19) && \
+		docker tag clouddeploy-worker-builder:dev clouddeploy-worker-builder:$$tag && echo $$tag > .k8s-builder-tag && echo "builder image: clouddeploy-worker-builder:$$tag"
 
 .PHONY: k8s-deps
 k8s-deps: ## DEV ONLY: Postgres + Redis inside the cluster (production uses managed services)
@@ -122,7 +126,8 @@ k8s-secrets: ## DEV ONLY: create the app Secret from .env (values never on the c
 .PHONY: k8s-deploy
 k8s-deploy: k8s-images k8s-deps k8s-secrets ## Install/upgrade CloudDeploy in the local cluster (dev values)
 	helm upgrade --install clouddeploy $(CHART) --kube-context $(KCTX) -n $(KNS) \
-		-f $(CHART)/values-dev.yaml --wait --timeout 5m
+		-f $(CHART)/values-dev.yaml --set image.tag=$$(cat .k8s-image-tag) \
+		--set dev.builderImage.tag=$$(cat .k8s-builder-tag) --wait --timeout 5m
 
 .PHONY: k8s-forward
 k8s-forward: ## Port-forward the in-cluster API to localhost:8080

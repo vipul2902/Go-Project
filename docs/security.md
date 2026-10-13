@@ -90,7 +90,8 @@ Details are in [kubernetes.md](kubernetes.md):
 - Containers drop all capabilities, can't escalate privileges, run under seccomp `RuntimeDefault`, and **don't mount service-account tokens**.
 - Secrets are resolved by the kubelet from `secretKeyRef`, so values never pass through CloudDeploy, its database or its logs.
 - The deployer refuses namespaces it doesn't manage, and the worker requires an explicit `KUBE_CONTEXT`.
-- CloudDeploy's own pods (from the Helm chart) meet the restricted profile. The API has no service-account token. The worker's ClusterRole can't read Secrets, exec into pods or change RBAC.
+- CloudDeploy's own pods (from the Helm chart) meet the restricted profile. The API's ClusterRole is read-only (deployments, pods, pod logs, for monitoring). The worker's ClusterRole covers only what the deployer applies. Neither can read Secrets, exec into pods or change RBAC.
+- **Monitoring and tenant isolation:** the namespace queried always comes from an environment the caller is authorized for, never from the request. Application logs require the developer role, because app output often contains sensitive data.
 - Container output copied into the pipeline log (from crash loops) is sanitized like build output.
 
 ## Client IP and trusted proxies

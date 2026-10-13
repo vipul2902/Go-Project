@@ -43,6 +43,10 @@ type Config struct {
 
 	RedisURL string
 
+	// KubeContext selects the cluster for monitoring when running outside
+	// one. Empty outside a cluster disables monitoring (endpoints answer 503).
+	KubeContext string
+
 	// TrustedProxies may set X-Forwarded-For; empty = trust no one.
 	TrustedProxies []netip.Prefix
 
@@ -77,7 +81,8 @@ func load(getenv func(string) string) (Config, error) {
 		DBMaxConnLifetime: parseDuration(getenv, "DB_MAX_CONN_LIFETIME", 30*time.Minute, &errs),
 		DBMaxConnIdleTime: parseDuration(getenv, "DB_MAX_CONN_IDLE_TIME", 5*time.Minute, &errs),
 
-		RedisURL: getenv("REDIS_URL"),
+		RedisURL:    getenv("REDIS_URL"),
+		KubeContext: getenv("KUBE_CONTEXT"),
 
 		JWTSecret: getenv("JWT_SECRET"),
 		// Short-lived access tokens bound the damage of a leaked token;

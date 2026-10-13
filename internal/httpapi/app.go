@@ -9,10 +9,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/vipul2902/clouddeploy/internal/auth"
 	"github.com/vipul2902/clouddeploy/internal/deployments"
 	"github.com/vipul2902/clouddeploy/internal/environments"
+	"github.com/vipul2902/clouddeploy/internal/kube"
+	"github.com/vipul2902/clouddeploy/internal/monitoring"
 	"github.com/vipul2902/clouddeploy/internal/organizations"
 	"github.com/vipul2902/clouddeploy/internal/projects"
 	"github.com/vipul2902/clouddeploy/internal/ratelimit"
@@ -28,6 +31,8 @@ type AppConfig struct {
 	// Redis enables rate limiting; nil disables it (most integration tests).
 	Redis          *redis.Client
 	TrustedProxies []netip.Prefix
+	// Kube enables monitoring (health, app logs); nil answers 503.
+	Kube kubernetes.Interface
 }
 
 // NewApp wires every service and handler into the root HTTP handler. It is
@@ -49,6 +54,11 @@ func NewApp(pool *pgxpool.Pool, cfg AppConfig) (http.Handler, error) {
 	}
 	projectSvc := projects.NewService(pool)
 	envSvc := environments.NewService(pool)
+	deploySvc := deployments.NewService(pool)
+	var inspector *kube.Inspector
+	if cfg.Kube != nil {
+		inspector = kube.NewInspector(cfg.Kube)
+	}
 	return NewRouter(Deps{
 		Logger:         cfg.Logger,
 		Version:        cfg.Version,
@@ -60,6 +70,7 @@ func NewApp(pool *pgxpool.Pool, cfg AppConfig) (http.Handler, error) {
 		Organizations:  organizations.NewHandler(organizations.NewService(pool)),
 		Projects:       projects.NewHandler(projectSvc),
 		Environments:   environments.NewHandler(envSvc, projectSvc),
-		Deployments:    deployments.NewHandler(deployments.NewService(pool), projectSvc, envSvc),
+		Deployments:    deployments.NewHandler(deploySvc, projectSvc, envSvc),
+		Monitoring:     monitoring.NewHandler(projectSvc, envSvc, deploySvc, inspector),
 	}), nil
 }

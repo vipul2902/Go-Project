@@ -33,3 +33,7 @@ web/dist/
 .idea/
 .vscode/
 *.swp
+
+# Local image tags written by make k8s-images
+.k8s-image-tag
+.k8s-builder-tag
