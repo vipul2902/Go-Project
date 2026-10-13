@@ -7,7 +7,7 @@ import (
 )
 
 func TestLoadWorker(t *testing.T) {
-	cfg, err := loadWorker(env(map[string]string{"DATABASE_URL": "postgres://x", "WORKER_BUILDER": "docker", "WORKER_DEPLOYER": "dryrun"}))
+	cfg, err := loadWorker(env(map[string]string{"DATABASE_URL": "postgres://x", "WORKER_BUILDER": "docker", "WORKER_DEPLOYER": "kubernetes", "KUBE_CONTEXT": "colima"}))
 	if err != nil {
 		t.Fatal(err)
 	}

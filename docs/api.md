@@ -90,10 +90,12 @@ Base path: `/projects/{id}/environments`. `{env}` is `development`, `staging` or
 | Method and path | Min. role | Notes |
 |---|---|---|
 | `GET /` | viewer | Listed in promotion order: development, staging, production |
-| `POST /` | developer (**admin for production**) | `name`, plus optional `namespace` (default `<project>-dev`, `-staging` or `-prod`), `replicas` (0–20, default 1) and `resources` |
+| `POST /` | developer (**admin for production**) | `name`, plus optional `namespace` (default `<project>-dev`, `-staging` or `-prod`), `replicas` (0–20, default 1), `resources`, `port` and `health_check_path` |
 | `GET /{env}` | viewer | |
-| `PATCH /{env}` | developer (**admin for production**) | `replicas` and/or `resources`. All four resource values are replaced together, so each request/limit pair is always validated as a pair. |
+| `PATCH /{env}` | developer (**admin for production**) | Any of `replicas`, `resources`, `port` and `health_check_path`. All four resource values are replaced together, so each request/limit pair is always validated as a pair. |
 | `DELETE /{env}` | admin | 409 `ENVIRONMENT_HAS_DEPLOYMENTS` if it has deployment history |
+
+`port` (1–65535, default 8080) is the port the app listens on. `health_check_path` (optional, for example `/healthz`) must answer 2xx when the app is ready; without it, readiness checks the TCP port. In a `PATCH`, `"health_check_path": ""` clears it.
 
 `resources` uses Kubernetes quantities: `{"cpu_request":"100m","cpu_limit":"500m","memory_request":"64Mi","memory_limit":"256Mi"}`.
 - CPU must be between 10m and 4000m, and memory between 16Mi and 8Gi.

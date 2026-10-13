@@ -23,7 +23,9 @@ The reference machine is an M1 MacBook Air with 8 GB RAM, running Colima with 4 
 | Native Redis | A Homebrew `redis` service occupies **6379**. Our container uses **16379**. If you don't need the native one, `brew services stop redis` saves a little RAM. |
 | psql | 14.14 (client only) |
 | gh | 2.96.0, authenticated |
-| kubectl, Helm, Terraform | Not installed. They will be added in Phases 10, 11 and 17. |
+| kubectl | 1.37 (Homebrew), installed in Phase 10 |
+| Kubernetes | Colima k3s 1.35, enabled with `make k8s-up`. It uses about 0.8 GB of the VM's 4 GB. |
+| Helm, Terraform | Not installed. They will be added in Phases 11 and 17. |
 
 ### Fixing the Compose plugin (if it breaks again)
 

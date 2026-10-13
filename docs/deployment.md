@@ -108,7 +108,7 @@ The builder and the deployer are chosen independently with `WORKER_BUILDER` and 
 | | `dryrun` | Real implementation |
 |---|---|---|
 | Builder | Describes the image it would build | `docker` (Phase 9): see [Image builds](#image-builds) |
-| Deployer | Describes the Kubernetes objects it would apply. Every line is tagged `[dry-run]`. | Kubernetes (Phase 10) |
+| Deployer | Describes the Kubernetes objects it would apply. Every line is tagged `[dry-run]`. | `kubernetes` (Phase 10): see [kubernetes.md](kubernetes.md) |
 
 ### Image builds
 

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/vipul2902/clouddeploy/internal/deployments"
+	"github.com/vipul2902/clouddeploy/internal/logsafe"
 	"github.com/vipul2902/clouddeploy/internal/worker"
 )
 
@@ -46,13 +47,7 @@ func NewDocker(workDir string) *Docker {
 	return &Docker{WorkDir: workDir, MaxSourceBytes: 500 << 20, MaxLogLines: 1000}
 }
 
-var (
-	shaRE = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
-	// ansiRE matches terminal escape sequences (CSI and OSC). Build output is
-	// untrusted: escapes could re-color, hide or rewrite lines when the log is
-	// later shown in a terminal or the dashboard, so they are stripped.
-	ansiRE = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)`)
-)
+var shaRE = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 
 // ImageTag names the image for a deployment's project and commit. The
 // project ID prefix keeps two organizations' projects named "api" apart.
@@ -187,7 +182,7 @@ func copyLines(r io.Reader, log worker.LogFunc, max int) {
 	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	n := 0
 	for sc.Scan() {
-		line := sanitize(sc.Text())
+		line := logsafe.Line(sc.Text())
 		if line == "" {
 			continue
 		}
@@ -200,18 +195,6 @@ func copyLines(r io.Reader, log worker.LogFunc, max int) {
 		}
 	}
 	_, _ = io.Copy(io.Discard, r)
-}
-
-// sanitize removes terminal escape sequences and other control characters
-// (keeping tabs) from one line of untrusted output.
-func sanitize(line string) string {
-	line = ansiRE.ReplaceAllString(line, "")
-	return strings.Map(func(r rune) rune {
-		if r == '\t' || r >= 0x20 && r != 0x7f {
-			return r
-		}
-		return -1
-	}, line)
 }
 
 // output runs a command and returns its trimmed stdout.

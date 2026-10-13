@@ -123,3 +123,26 @@ func TestValidateVariable(t *testing.T) {
 		})
 	}
 }
+
+func TestRuntimeValidation(t *testing.T) {
+	in := CreateInput{Name: Development}
+	if errs := in.normalize("api"); len(errs) != 0 || *in.Port != 8080 || in.HealthCheckPath != nil {
+		t.Fatalf("defaults: %v %+v", errs, in)
+	}
+	for _, p := range []string{"healthz", "/a?b=c", "/has space", "/" + strings.Repeat("a", 200)} {
+		in := CreateInput{Name: Development, HealthCheckPath: &p}
+		if _, ok := in.normalize("api")["health_check_path"]; !ok {
+			t.Errorf("health path %q accepted", p)
+		}
+	}
+	for _, port := range []int{0, 65536} {
+		in := CreateInput{Name: Development, Port: &port}
+		if _, ok := in.normalize("api")["port"]; !ok {
+			t.Errorf("port %d accepted", port)
+		}
+	}
+	empty := ""
+	if errs := (UpdateInput{HealthCheckPath: &empty}).validate(); len(errs) != 0 {
+		t.Errorf("clearing the health path rejected: %v", errs)
+	}
+}

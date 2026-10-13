@@ -19,6 +19,7 @@ import (
 	"github.com/vipul2902/clouddeploy/internal/database"
 	"github.com/vipul2902/clouddeploy/internal/deployments"
 	"github.com/vipul2902/clouddeploy/internal/httpx"
+	"github.com/vipul2902/clouddeploy/internal/kube"
 	"github.com/vipul2902/clouddeploy/internal/worker"
 )
 
@@ -64,7 +65,22 @@ func run() error {
 	} else {
 		logger.Warn("WORKER_BUILDER=dryrun: images are not built")
 	}
-	logger.Warn("WORKER_DEPLOYER=dryrun: nothing is deployed to a cluster")
+	if cfg.Deployer == config.DeployerKubernetes {
+		cs, err := kube.NewClientset(cfg.KubeContext)
+		if err != nil {
+			return err
+		}
+		// Fail fast on a wrong context or unreachable cluster, not on the
+		// first deployment.
+		v, err := cs.Discovery().ServerVersion()
+		if err != nil {
+			return fmt.Errorf("connect to kubernetes (context %q): %w", cfg.KubeContext, err)
+		}
+		logger.Info("kubernetes deployer ready", "context", cfg.KubeContext, "server_version", v.GitVersion)
+		pipeline.Deployer = kube.NewDeployer(cs)
+	} else {
+		logger.Warn("WORKER_DEPLOYER=dryrun: nothing is deployed to a cluster")
+	}
 	w := worker.New(pool, deployments.NewService(pool), pipeline, wcfg, logger)
 
 	// Health endpoints for Kubernetes probes. Liveness never checks the
