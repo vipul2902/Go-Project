@@ -3,6 +3,7 @@ package deployments
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/vipul2902/clouddeploy/internal/audit"
 	"github.com/vipul2902/clouddeploy/internal/auth"
@@ -33,6 +34,7 @@ func (h *Handler) Routes(mux *http.ServeMux, requireAuth func(http.Handler) http
 	handle("GET /api/v1/deployments", h.list)
 	handle("GET /api/v1/deployments/{id}", h.get)
 	handle("POST /api/v1/deployments/{id}/cancel", h.cancel)
+	handle("GET /api/v1/deployments/{id}/logs", h.logs)
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -163,6 +165,54 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, d)
+}
+
+// logs returns pipeline log lines after ?after=<id> (default 0), oldest
+// first, up to ?limit (default 200, max 1000). next_after is the id to pass
+// on the next poll.
+func (h *Handler) logs(w http.ResponseWriter, r *http.Request) {
+	d, _, _, ok := h.load(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	after, limit := int64(0), 200
+	errs := map[string]string{}
+	if v := q.Get("after"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 0 {
+			errs["after"] = "must be a non-negative integer"
+		}
+		after = n
+	}
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 1000 {
+			errs["limit"] = "must be between 1 and 1000"
+		}
+		limit = n
+	}
+	if len(errs) > 0 {
+		httpx.WriteValidationError(w, r, errs)
+		return
+	}
+	lines, err := h.svc.Logs(r.Context(), d.ID, after, limit)
+	if err != nil {
+		httpx.WriteInternalError(w, r, err)
+		return
+	}
+	if lines == nil {
+		lines = []LogLine{}
+	}
+	next := after
+	if len(lines) > 0 {
+		next = lines[len(lines)-1].ID
+	}
+	httpx.WriteJSON(w, http.StatusOK, struct {
+		Data      []LogLine `json:"data"`
+		NextAfter int64     `json:"next_after"`
+		Status    Status    `json:"status"`
+	}{lines, next, d.Status})
 }
 
 func writeErr(w http.ResponseWriter, r *http.Request, err error) {

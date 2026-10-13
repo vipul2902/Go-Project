@@ -122,10 +122,16 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Deployment, bool,
 			p.Project.ID, p.Environment.ID, p.CommitSHA, p.ActorID, p.IdempotencyKey, cfg).Scan(&id); err != nil {
 			return err
 		}
-		return audit.Record(ctx, tx, audit.Actor{UserID: p.ActorID, OrganizationID: p.Project.OrganizationID},
+		if err := audit.Record(ctx, tx, audit.Actor{UserID: p.ActorID, OrganizationID: p.Project.OrganizationID},
 			"deployment.created", "deployment", id, map[string]any{
 				"project": p.Project.Name, "environment": p.Environment.Name, "commit_sha": p.CommitSHA,
-			})
+			}); err != nil {
+			return err
+		}
+		// Wake the workers. Delivered only if this transaction commits, so a
+		// worker can never be told about a deployment it cannot see.
+		_, err = tx.Exec(ctx, `SELECT pg_notify($1, $2)`, QueueChannel, id)
+		return err
 	})
 
 	switch {

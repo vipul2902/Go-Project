@@ -15,12 +15,14 @@ ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false \
     -ldflags="-s -w -X main.version=${VERSION}" \
     -o /out/api ./cmd/api && \
+    CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -X main.version=${VERSION}" \
+    -o /out/worker ./cmd/worker && \
     CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" \
     -o /out/migrate ./cmd/migrate
 
 # ---- runtime stage: no shell, no package manager, non-root ----
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=builder /out/api /out/migrate /
+COPY --from=builder /out/api /out/worker /out/migrate /
 USER nonroot:nonroot
 EXPOSE 8080
 # No HEALTHCHECK: distroless has no shell/curl. Health is probed by

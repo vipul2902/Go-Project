@@ -13,9 +13,14 @@ help: ## Show available targets
 dev: ## Run the API locally (loads .env if present)
 	@set -a; [ -f .env ] && source .env; set +a; go run ./cmd/api
 
+.PHONY: worker
+worker: ## Run the deployment worker locally (dry-run executor)
+	@set -a; [ -f .env ] && source .env; set +a; DEPLOY_EXECUTOR=$${DEPLOY_EXECUTOR:-dryrun} go run ./cmd/worker
+
 .PHONY: build
-build: ## Build the API binary into bin/
+build: ## Build the API and worker binaries into bin/
 	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN) ./cmd/api
+	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o bin/worker ./cmd/worker
 
 .PHONY: test
 test: ## Run unit tests with the race detector

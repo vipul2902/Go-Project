@@ -37,3 +37,18 @@ docker compose version
 ## Graceful shutdown
 
 When the API receives SIGTERM, it stops accepting new connections and waits up to `SHUTDOWN_TIMEOUT` for in-flight requests to finish before it exits. Kubernetes sends SIGTERM during rolling updates, so this behaviour prevents dropped requests during a deploy.
+
+## Colima disk space
+
+Docker's images and containers live on Colima's **data disk** (`/mnt/lima-colima`), not on the VM's root disk. On the reference machine that disk is 5.9 GB, and in Phase 8 it filled up, which broke image builds (`no space left on device`). To check usage:
+
+```bash
+docker system df                                   # what Docker is using
+colima ssh -- df -h /mnt/lima-colima               # the actual limit
+```
+
+To free space:
+- `docker image prune` removes dangling images.
+- `docker builder prune` removes the build cache.
+- Large images that aren't used here, such as `azure-sql-edge` and `dotnet/sdk`, can be removed if you don't need them elsewhere.
+- Or stop Colima and restart it with a larger disk: `colima stop && colima start --disk 30`.

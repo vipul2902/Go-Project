@@ -11,8 +11,8 @@ Redis is often added by reflex. Our rule is that every use must solve a problem 
 | Use | Decision | Reason |
 |---|---|---|
 | **Rate limiting** | Adopted (Phase 7) | Limits must be shared across API replicas. In-process counters would multiply the limit by the replica count. |
-| **Job queue and job state** | Phase 8 | That's where the worker is introduced. |
-| **Distributed locks** | Only if Phase 8 needs them | PostgreSQL's unique index already guarantees one active deployment per environment. A second mechanism for the same rule adds failure modes. |
+| **Job queue and job state** | **Rejected in Phase 8** | Using Redis would create a dual write: the deployment row in PostgreSQL plus a message in Redis, which can't be atomic. PostgreSQL itself is the queue (`SKIP LOCKED` and leases), with `NOTIFY` as a transactional wake-up. See [deployment.md](../deployment.md). |
+| **Distributed locks** | **Not needed (Phase 8)** | PostgreSQL row locks and worker leases cover mutual exclusion, and the unique index guarantees one active deployment per environment. A second locking system would add failure modes without adding guarantees. |
 | **Caching project and role lookups** | **Rejected for now** | See below. |
 
 ### Why there's no cache yet
@@ -29,8 +29,8 @@ For reference, cache-aside works like this: read the cache; on a miss, load from
   - It uses Redis's own clock, so clock drift between replicas can't make them disagree.
   - Each key expires when its limit has fully refilled, so idle keys cost no memory.
 - **Failure policy: fail open.** If Redis is unavailable, requests are allowed and a warning is logged. `/readyz` reports `degraded` but stays 200, so Kubernetes keeps the pod in service. Rate limiting protects the API; losing the protection shouldn't take the API down. The trade-off is that brute-force protection is absent during a Redis outage; monitoring and alerting come in Phase 16.
-- **Memory policy:** `maxmemory 64mb` with `volatile-lru`, which evicts only keys with a TTL. Rate-limit keys are always evictable. The Phase 8 queue keys have no TTL and will never be silently evicted.
-- **Persistence:** off in Phase 7. Losing rate-limit state on a restart only restarts the limit windows. The queue in Phase 8 will need to persist its data and will configure that.
+- **Memory policy:** `maxmemory 64mb` with `volatile-lru`, which evicts only keys with a TTL. Every rate-limit key has one, so all of them can be evicted under memory pressure. Keys written without a TTL would be protected from eviction.
+- **Persistence:** off. Losing rate-limit state on a restart only restarts the limit windows. (Phase 8 put the queue in PostgreSQL, so Redis holds no data that needs to survive a restart.)
 
 ## Consequences
 - Redis is a required dependency at startup (fail fast on misconfiguration), but only an optional one at runtime.

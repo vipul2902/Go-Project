@@ -73,11 +73,48 @@ At creation, the environment's namespace, replica count, resources and variables
 | A project can't be deleted while a deployment is being created or running | Creation takes `FOR SHARE` on the project row; deletion takes `FOR UPDATE` and checks for active deployments |
 | Every change has an audit record, and vice versa | The audit row is written in the same transaction as the change |
 
+## Asynchronous worker
+
+`POST /deployments` only records the deployment and returns `202 Accepted`. A separate **worker** process (`cmd/worker`, same image) does the slow work. It's a separate process so that builds never compete with API requests and the two scale independently (ADR-004).
+
+### PostgreSQL is the queue
+
+```
+API tx:  INSERT deployment (QUEUED) ; pg_notify('deployment_queued', id) ; COMMIT
+                                                   │ delivered only on commit
+worker:  LISTEN ◄──────────────────────────────────┘   (+ poll every 5s as fallback)
+         UPDATE … SET status='BUILDING', claimed_by=me, lease=now+30s
+           WHERE id = (SELECT … WHERE status='QUEUED' … FOR UPDATE SKIP LOCKED LIMIT 1)
+```
+
+| Concern | How it's handled |
+|---|---|
+| **Dual write** (row committed but message lost, or the reverse) | There is no second system. The queued row *is* the job, and `NOTIFY` is transactional. |
+| **Exactly one worker per job** | The row lock plus PostgreSQL re-checking `status = 'QUEUED'` after a lock wait. Tested with 3 workers, each running 3 loops, competing for 12 jobs. |
+| **Claimers blocking each other** | `SKIP LOCKED` lets a claimer skip a row another claimer is holding and take the next job immediately. `TestClaimSkipsLockedRowsWithoutBlocking` fails without it: the claim blocks for 500 ms and times out. |
+| **Latency** | `LISTEN/NOTIFY` wakes an idle worker (measured at 89 ms from request to `RUNNING`). If the listener connection drops, polling covers the gap. Notifications only speed things up; correctness never depends on them. |
+| **Worker crash** | A claim carries a **lease**. The heartbeat renews it every `LEASE_TTL/3`. Any worker's reaper fails deployments whose lease has expired (`worker lost: lease expired…`). They aren't retried automatically until every step is proven idempotent, so the user redeploys. |
+| **User cancels mid-build** | The next heartbeat sees the deployment is no longer active and cancels the step's `context` (stopped in under a second in tests). The worker never overwrites `CANCELLED` with `FAILED`. |
+| **Executor panics** | The panic is recovered, the deployment is marked `FAILED`, and the worker keeps running. |
+| **SIGTERM** | The worker stops claiming. In-flight jobs get `SHUTDOWN_TIMEOUT` to finish, then are interrupted and recorded as `FAILED` ("interrupted: the worker shut down…"). Final writes use a context that the shutdown can't cancel. |
+
+Why not Redis or Kafka for the queue? Both reintroduce the dual-write problem, which then needs a transactional outbox to solve. At our scale, a few deployments per minute, PostgreSQL handles the queue comfortably. Reconsider when throughput reaches thousands of jobs per second, or when other consumers need the same events (that would be the event-driven or Kafka option).
+
+### Executors
+
+The worker drives an `Executor` with two methods, `Build` and `Deploy`:
+- **`dryrun`** (current) describes the image it would build and the Kubernetes objects it would apply. Every log line is tagged `[dry-run]`. It must be selected explicitly with `DEPLOY_EXECUTOR=dryrun`; there's no default.
+- **Docker builder** (Phase 9) and **Kubernetes deployer** (Phase 10) will replace it.
+
+### Pipeline logs
+
+The worker writes each step to `deployment_logs`. Clients read them with `GET /deployments/{id}/logs?after=<last id>`, and each response includes `next_after` and the deployment's current `status`, so a client can tail a running deployment by polling.
+
 ## Audit log
 
 Each audit entry records the actor, organization, action, resource, metadata, client IP, request ID and timestamp. Recorded actions:
 
-`auth.registered`, `auth.login`, `auth.refresh_token_reuse`, `organization.created`, `member.added`, `member.role_changed`, `member.removed`, `project.created`, `project.updated` (with from/to values for each changed field), `project.deleted`, `environment.created`, `environment.updated`, `environment.deleted`, `variable.set`, `variable.deleted`, `deployment.created`, `deployment.cancelled`.
+`auth.registered`, `auth.login`, `auth.refresh_token_reuse`, `deployment.succeeded` and `deployment.failed` (recorded by the worker, so they have no user actor), `organization.created`, `member.added`, `member.role_changed`, `member.removed`, `project.created`, `project.updated` (with from/to values for each changed field), `project.deleted`, `environment.created`, `environment.updated`, `environment.deleted`, `variable.set`, `variable.deleted`, `deployment.created`, `deployment.cancelled`.
 
 What is and isn't recorded:
 - Variable **values** are never recorded, not even plain ones; only the key and whether it's a secret.
