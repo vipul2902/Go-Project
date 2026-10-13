@@ -41,7 +41,7 @@ func setup(t *testing.T) env {
 	}
 	srv := httptest.NewServer(httpapi.NewRouter(httpapi.Deps{
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Auth:   auth.NewHandler(svc),
+		Auth:   auth.NewHandler(svc, nil),
 	}))
 	t.Cleanup(srv.Close)
 	return env{srv: srv, svc: svc, pool: pool}

@@ -117,3 +117,25 @@ func TestPanicReturns500Envelope(t *testing.T) {
 		t.Error("panic value leaked to client")
 	}
 }
+
+func TestReadinessSoftCheckDegrades(t *testing.T) {
+	ok := func(context.Context) error { return nil }
+	fail := func(context.Context) error { return errors.New("redis down") }
+	h := NewRouter(Deps{
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Checks:     map[string]ReadinessCheck{"postgres": ok},
+		SoftChecks: map[string]ReadinessCheck{"redis": fail},
+	})
+	rec := do(t, h, http.MethodGet, "/readyz", nil)
+	var body struct {
+		Status string            `json:"status"`
+		Checks map[string]string `json:"checks"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	// Still in service (200): losing Redis only disables rate limiting.
+	if rec.Code != http.StatusOK || body.Status != "degraded" || body.Checks["redis"] != "unavailable" {
+		t.Errorf("got %d %+v", rec.Code, body)
+	}
+}

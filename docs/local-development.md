@@ -5,7 +5,11 @@
 The reference machine is an M1 MacBook Air with 8 GB RAM, running Colima with 4 CPUs and 4 GB RAM. The rules:
 
 - Run the Go API natively (`make dev`) while iterating. Use containers only for its dependencies.
-- Docker Compose services are grouped into profiles. `core` holds the API, PostgreSQL and Redis. `observability` holds Prometheus and Grafana and is opt-in.
+- Docker Compose services are grouped into profiles:
+  - `deps`: PostgreSQL and Redis, for running the API natively.
+  - `core`: `deps` plus the migrate job and the API in a container.
+  - `observability`: Prometheus and Grafana, opt-in.
+- The `deps` profile uses about 85 MB and the full `core` stack about 105 MB.
 - Stop unrelated containers before starting Kubernetes, which arrives in Phase 10.
 
 ## Toolchain status (audited 2026-10-09)
@@ -16,6 +20,7 @@ The reference machine is an M1 MacBook Air with 8 GB RAM, running Colima with 4 
 | Docker / Colima | Colima 0.10.3, docker runtime, aarch64 |
 | Docker Compose plugin | 5.6.0 (Homebrew). The symlink was repaired on 2026-10-09; it had pointed to a removed Docker Desktop install. |
 | Native PostgreSQL | Versions 16 and 17 are installed under `/Library/PostgreSQL` and occupy ports **5432 and 5433**. Our container uses **15432**. |
+| Native Redis | A Homebrew `redis` service occupies **6379**. Our container uses **16379**. If you don't need the native one, `brew services stop redis` saves a little RAM. |
 | psql | 14.14 (client only) |
 | gh | 2.96.0, authenticated |
 | kubectl, Helm, Terraform | Not installed. They will be added in Phases 10, 11 and 17. |

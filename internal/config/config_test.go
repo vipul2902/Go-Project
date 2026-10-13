@@ -14,7 +14,7 @@ func env(m map[string]string) func(string) string {
 }
 
 func TestLoadDefaults(t *testing.T) {
-	cfg, err := load(env(map[string]string{"DATABASE_URL": "postgres://x", "JWT_SECRET": testJWTSecret}))
+	cfg, err := load(env(map[string]string{"DATABASE_URL": "postgres://x", "REDIS_URL": "redis://x", "JWT_SECRET": testJWTSecret}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -33,6 +33,7 @@ func TestLoadOverrides(t *testing.T) {
 	cfg, err := load(env(map[string]string{
 		"DATABASE_URL":     "postgres://x",
 		"JWT_SECRET":       testJWTSecret,
+		"REDIS_URL":        "redis://x",
 		"APP_ENV":          "production",
 		"PORT":             "9090",
 		"LOG_LEVEL":        "debug",
@@ -58,7 +59,7 @@ func TestLoadReportsAllErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	for _, want := range []string{"APP_ENV", "PORT", "LOG_LEVEL", "HTTP_READ_TIMEOUT", "DATABASE_URL", "DB_MIN_CONNS", "JWT_SECRET"} {
+	for _, want := range []string{"APP_ENV", "PORT", "LOG_LEVEL", "HTTP_READ_TIMEOUT", "DATABASE_URL", "DB_MIN_CONNS", "JWT_SECRET", "REDIS_URL"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %s", err, want)
 		}

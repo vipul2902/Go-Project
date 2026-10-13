@@ -9,15 +9,19 @@ import (
 
 	"github.com/vipul2902/clouddeploy/internal/httpx"
 	"github.com/vipul2902/clouddeploy/internal/middleware"
+	"github.com/vipul2902/clouddeploy/internal/ratelimit"
 )
 
 // Handler exposes auth endpoints over HTTP.
 type Handler struct {
-	svc *Service
+	svc     *Service
+	limiter *ratelimit.Limiter
 }
 
-// NewHandler returns the auth HTTP handler.
-func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
+// NewHandler returns the auth HTTP handler. A nil limiter disables limits.
+func NewHandler(svc *Service, limiter *ratelimit.Limiter) *Handler {
+	return &Handler{svc: svc, limiter: limiter}
+}
 
 // Routes registers the auth endpoints on mux.
 func (h *Handler) Routes(mux *http.ServeMux) {
@@ -34,6 +38,9 @@ type authResponse struct {
 }
 
 func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
+	if !h.limiter.Check(w, r, RegisterPerIP, ipKey(r), httpx.TooManyRequests) {
+		return
+	}
 	var in RegisterInput
 	if !httpx.DecodeJSON(w, r, &in) {
 		return
@@ -62,7 +69,17 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	if !httpx.DecodeJSON(w, r, &in) {
 		return
 	}
+	if !h.limiter.Check(w, r, LoginPerIP, ipKey(r), httpx.TooManyRequests) ||
+		!h.limiter.Check(w, r, LoginPerAccount, accountKey(in.Email), httpx.TooManyRequests) {
+		return
+	}
 	u, pair, err := h.svc.Login(r.Context(), in.Email, in.Password)
+	if err == nil {
+		// Count failures, not logins: a successful login clears the account limit.
+		if rerr := h.limiter.Reset(r.Context(), LoginPerAccount, accountKey(in.Email)); rerr != nil {
+			logWarn(r, "reset login rate limit failed")
+		}
+	}
 	switch {
 	case errors.Is(err, ErrInvalidCredentials):
 		// Same response for unknown email and wrong password.
@@ -80,6 +97,9 @@ type refreshRequest struct {
 }
 
 func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
+	if !h.limiter.Check(w, r, RefreshPerIP, ipKey(r), httpx.TooManyRequests) {
+		return
+	}
 	var in refreshRequest
 	if !httpx.DecodeJSON(w, r, &in) {
 		return
