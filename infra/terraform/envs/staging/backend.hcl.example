@@ -1,0 +1,8 @@
+# Copy to backend.hcl (git-ignored) and run: terraform init -backend-config=backend.hcl
+# The storage account is created once, by hand or a bootstrap script, outside
+# this configuration (a state backend cannot store its own state).
+resource_group_name  = "rg-clouddeploy-tfstate"
+storage_account_name = "clouddeploytfstate"
+container_name       = "tfstate"
+key                  = "staging.tfstate"
+use_azuread_auth     = true

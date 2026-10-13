@@ -2,7 +2,7 @@
 
 A cloud-native deployment platform: register an application, define its environments, build it, deploy it to Kubernetes, and track status, health, logs and history — with Azure infrastructure provisioned by Terraform.
 
-> **Status:** Phase 16 (observability) complete. Prometheus metrics, OpenTelemetry traces that follow a deployment through the queue into the worker, trace-correlated logs, a Grafana dashboard and alert rules. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
+> **Status:** Phase 17 (Terraform) complete. Azure infrastructure for dev, staging and prod, written as code: AKS, ACR, PostgreSQL, Managed Redis, Key Vault and private networking. Secrets never enter Terraform state. Validated and tested offline; nothing has been applied to Azure. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
 
 ## Screenshots
 
@@ -36,7 +36,7 @@ It is a **modular monolith**: one deployable Go binary with clear internal packa
 | Dashboard | React 19, TypeScript, Vite, TanStack Query, served by nginx |
 | Data | PostgreSQL, Redis *(Phase 2 / 7)* |
 | Runtime | Docker (distroless, non-root), Kubernetes + Helm *(Phase 10–11)* |
-| Cloud | Terraform, Azure AKS/ACR *(Phase 17–18)* |
+| Cloud | Terraform 1.16 (azurerm 4.x): AKS, ACR, PostgreSQL Flexible Server, Managed Redis, Key Vault *(apply: Phase 18)* |
 | CI/CD | GitHub Actions *(Phase 19–20)* |
 
 ## Quick start
@@ -68,6 +68,7 @@ curl localhost:8080/readyz
 | `make helm-lint` | Lint the Helm chart with every values file and check its safety guards |
 | `make k8s-deploy` / `make k8s-forward` / `make k8s-uninstall` | Run CloudDeploy itself in the cluster with Helm (dev values). `k8s-forward` opens the dashboard on http://localhost:8080. |
 | `make obs-up` / `make obs-down` | Opt-in Prometheus, Grafana and Jaeger (see [docs/observability.md](docs/observability.md)) |
+| `make terraform-check` / `make terraform-plan ENV=dev` | Offline fmt, validate and mocked tests; a real plan (needs `az login`). No apply target, on purpose (see [docs/terraform.md](docs/terraform.md)). |
 | `make web-dev` / `make web-check` | Dashboard dev server; type-check, lint, test and build the dashboard |
 
 ## Configuration
@@ -139,13 +140,14 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 
 ## Roadmap
 
-0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s ✅ · 11 Helm ✅ · 12 monitoring/logs ✅ · 13 rollback ✅ · 14 dashboard ✅ · 15 test hardening ✅ · 16 observability ✅ · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
+0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s ✅ · 11 Helm ✅ · 12 monitoring/logs ✅ · 13 rollback ✅ · 14 dashboard ✅ · 15 test hardening ✅ · 16 observability ✅ · 17 Terraform ✅ · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
 
 ## Documentation
 
 - [API reference](docs/api.md)
 - [Testing strategy: fuzzing, model-based tests, benchmarks](docs/testing.md)
 - [Observability: metrics, traces, logs, alerts](docs/observability.md)
+- [Terraform: Azure infrastructure, secrets kept out of state](docs/terraform.md)
 - [Dashboard](docs/frontend.md)
 - [Architecture decisions](docs/adr/)
 - [Local development](docs/local-development.md)
