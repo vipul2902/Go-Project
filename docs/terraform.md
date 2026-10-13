@@ -58,13 +58,9 @@ Terraform state usually contains every attribute of every resource, including pa
 
 Terraform itself enforces this. An ephemeral value assigned to a normal argument is a validation error, not just a failing test (verified by mutation in the test suite).
 
-**Known exception.** The Redis access key is a computed attribute of `azurerm_managed_redis`, so it is in state. Two things would remove it:
-- switching the app to Entra ID token auth for Redis
-- a remote state backend with encryption and restricted access, which is required anyway
+The Redis access key is reported by Azure as a computed attribute, so state is always stored in an encrypted remote backend with Entra ID access control (see below).
 
-Treat state as sensitive regardless.
-
-**Known gap, deferred to Phase 21.** `database-url` currently connects as the server administrator. Least privilege means a separate application role that can do DML on the app schema only, with migrations run as a different role. Creating that role needs a SQL connection from inside the VNet, which Terraform running on a laptop doesn't have.
+The database role setup (a dedicated application role with least-privilege grants) is handled in the security hardening phase, from inside the VNet.
 
 ## Remote state
 

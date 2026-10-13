@@ -28,6 +28,4 @@ Terraform state records every attribute of every managed resource. A `random_pas
 - Terraform refuses, at validation, any attempt to assign an ephemeral value to a normal argument. The rule is enforced by the language, not by convention.
 - Terraform can't detect drift in write-only values: a password changed in the portal won't show in a plan. Rotation is explicit, through `secrets_version`.
 - The applying principal needs `Key Vault Secrets Officer` on the vault and network access to it. That's `operator_ip_ranges` for a laptop, or a runner inside the VNet later.
-- **Remaining exception:** the Redis access key is a computed attribute of `azurerm_managed_redis` and lands in state. Mitigations:
-  - an encrypted remote backend with Entra ID auth and restricted access
-  - longer term, Entra ID token auth for Redis in the app, which removes the key entirely
+- The Redis access key is a computed attribute of `azurerm_managed_redis`, so state lives in an encrypted remote backend with Entra ID auth and restricted access. Entra ID token auth for Redis would remove the key entirely.
