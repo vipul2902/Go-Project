@@ -66,7 +66,7 @@ test-stress: ## Integration suite 3x under the race detector, to surface flaky t
 	@set -a; source .env; set +a; go test -race -count=3 -p 1 -tags integration ./...
 
 .PHONY: test-all
-test-all: lint test test-integration web-check helm-lint ## Everything except cluster tests (add make test-k8s)
+test-all: lint test test-integration web-check helm-lint terraform-check ## Everything except cluster tests (add make test-k8s)
 
 .PHONY: fmt
 fmt: ## Format code
@@ -175,6 +175,30 @@ obs-up: ## Start Prometheus (:9091), Grafana (:3000), Jaeger (:16686); opt-in, ~
 .PHONY: obs-down
 obs-down: ## Stop the observability stack
 	docker compose --profile observability stop
+
+TF_DIR   := infra/terraform
+TF_ROOTS := envs/dev envs/staging envs/prod modules/platform
+export TF_PLUGIN_CACHE_DIR ?= $(HOME)/.terraform.d/plugin-cache
+
+.PHONY: terraform-check
+terraform-check: ## Terraform fmt, validate and offline tests (mocked Azure; no account needed)
+	@mkdir -p $(TF_PLUGIN_CACHE_DIR)
+	terraform -chdir=$(TF_DIR) fmt -check -recursive
+	@for d in $(TF_ROOTS); do \
+		terraform -chdir=$(TF_DIR)/$$d init -backend=false -input=false >/dev/null || exit 1; \
+		printf '%-20s ' $$d; terraform -chdir=$(TF_DIR)/$$d validate -no-color | head -1 || exit 1; \
+	done
+	terraform -chdir=$(TF_DIR)/modules/platform test
+
+# There is deliberately no apply target: applying creates billable Azure
+# resources and is a reviewed, manual (later: CD-approved) step.
+.PHONY: terraform-plan
+terraform-plan: ## Plan an environment against Azure (ENV=dev|staging|prod; needs az login + backend.hcl)
+	@command -v az >/dev/null || { echo "az CLI not installed (brew install azure-cli)"; exit 1; }
+	@az account show >/dev/null 2>&1 || { echo "not logged in: run az login"; exit 1; }
+	@test -f $(TF_DIR)/envs/$(or $(ENV),dev)/backend.hcl || { echo "missing backend.hcl: copy backend.hcl.example"; exit 1; }
+	terraform -chdir=$(TF_DIR)/envs/$(or $(ENV),dev) init -input=false -backend-config=backend.hcl
+	terraform -chdir=$(TF_DIR)/envs/$(or $(ENV),dev) plan -input=false
 
 .PHONY: docker-build
 docker-build: ## Build the API container image

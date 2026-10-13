@@ -38,3 +38,6 @@ web/dist/
 .k8s-image-tag
 .k8s-builder-tag
 .k8s-web-tag
+
+# Terraform backend settings (storage account names etc.)
+backend.hcl
