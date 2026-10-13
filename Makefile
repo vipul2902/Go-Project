@@ -14,9 +14,10 @@ dev: ## Run the API locally (loads .env if present)
 	@set -a; [ -f .env ] && source .env; set +a; go run ./cmd/api
 
 .PHONY: worker
-worker: ## Run the deployment worker locally (Docker builds, dry-run deploys)
+worker: ## Run the worker locally (Docker builds; Kubernetes deploys to the colima context)
 	@set -a; [ -f .env ] && source .env; set +a; \
-	WORKER_BUILDER=$${WORKER_BUILDER:-docker} WORKER_DEPLOYER=$${WORKER_DEPLOYER:-dryrun} go run ./cmd/worker
+	WORKER_BUILDER=$${WORKER_BUILDER:-docker} WORKER_DEPLOYER=$${WORKER_DEPLOYER:-kubernetes} \
+	KUBE_CONTEXT=$${KUBE_CONTEXT:-colima} go run ./cmd/worker
 
 .PHONY: build
 build: ## Build the API and worker binaries into bin/
@@ -30,6 +31,10 @@ test: ## Run unit tests with the race detector
 .PHONY: test-integration
 test-integration: ## Integration tests: compose Postgres + Redis, local git + Docker (needs make db-up)
 	@set -a; source .env; set +a; go test -race -count=1 -p 1 -tags integration ./...
+
+.PHONY: test-k8s
+test-k8s: ## Kubernetes deployer tests against the local cluster (needs make k8s-up)
+	KUBE_CONTEXT=$${KUBE_CONTEXT:-colima} go test -count=1 -tags k8s -timeout 10m ./internal/kube/
 
 .PHONY: cover
 cover: ## Run tests with coverage report
@@ -63,6 +68,15 @@ seed: ## Load development seed data (idempotent)
 .PHONY: psql
 psql: ## Open a psql shell in the Postgres container
 	docker compose exec postgres psql -U clouddeploy -d clouddeploy
+
+.PHONY: k8s-up
+k8s-up: ## Start Colima with Kubernetes (k3s) enabled
+	colima start --kubernetes
+	kubectl --context colima wait --for=condition=Ready node --all --timeout=180s
+
+.PHONY: k8s-down
+k8s-down: ## Disable Kubernetes to free ~1 GB of RAM (Colima keeps running)
+	colima kubernetes stop
 
 .PHONY: docker-build
 docker-build: ## Build the API container image

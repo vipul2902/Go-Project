@@ -18,7 +18,8 @@ type Worker struct {
 	DBMaxConnLifetime time.Duration
 	Concurrency       int
 	Builder           string // "docker" | "dryrun"
-	Deployer          string // "dryrun" (Kubernetes in Phase 10)
+	Deployer          string // "kubernetes" | "dryrun"
+	KubeContext       string // kubeconfig context; required outside a cluster
 	BuildWorkDir      string
 	PollInterval      time.Duration
 	LeaseTTL          time.Duration
@@ -27,8 +28,9 @@ type Worker struct {
 
 // Supported builder and deployer implementations.
 const (
-	DryRun        = "dryrun"
-	BuilderDocker = "docker"
+	DryRun             = "dryrun"
+	BuilderDocker      = "docker"
+	DeployerKubernetes = "kubernetes"
 )
 
 // LoadWorker reads the worker configuration from the environment.
@@ -44,6 +46,7 @@ func loadWorker(getenv func(string) string) (Worker, error) {
 		Concurrency:       parseInt(getenv, "WORKER_CONCURRENCY", 2, &errs),
 		Builder:           getenv("WORKER_BUILDER"),
 		Deployer:          getenv("WORKER_DEPLOYER"),
+		KubeContext:       getenv("KUBE_CONTEXT"),
 		BuildWorkDir:      valueOr(getenv("BUILD_WORKDIR"), os.TempDir()),
 		PollInterval:      parseDuration(getenv, "WORKER_POLL_INTERVAL", 5*time.Second, &errs),
 		LeaseTTL:          parseDuration(getenv, "WORKER_LEASE_TTL", 30*time.Second, &errs),
@@ -74,9 +77,9 @@ func loadWorker(getenv func(string) string) (Worker, error) {
 		errs = append(errs, fmt.Errorf("WORKER_BUILDER: unsupported value %q", cfg.Builder))
 	}
 	switch cfg.Deployer {
-	case DryRun:
+	case DeployerKubernetes, DryRun:
 	case "":
-		errs = append(errs, errors.New(`WORKER_DEPLOYER: required ("dryrun" until the Kubernetes deployer lands in Phase 10)`))
+		errs = append(errs, errors.New(`WORKER_DEPLOYER: required ("kubernetes" or "dryrun")`))
 	default:
 		errs = append(errs, fmt.Errorf("WORKER_DEPLOYER: unsupported value %q", cfg.Deployer))
 	}

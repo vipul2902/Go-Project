@@ -54,10 +54,12 @@ type Trigger struct {
 // Config is the environment configuration snapshotted at creation time.
 // Secret variables appear only as references.
 type Config struct {
-	Namespace string                  `json:"namespace"`
-	Replicas  int                     `json:"replicas"`
-	Resources environments.Resources  `json:"resources"`
-	Variables []environments.Variable `json:"variables"`
+	Namespace       string                  `json:"namespace"`
+	Replicas        int                     `json:"replicas"`
+	Resources       environments.Resources  `json:"resources"`
+	Port            int                     `json:"port"`
+	HealthCheckPath *string                 `json:"health_check_path"`
+	Variables       []environments.Variable `json:"variables"`
 }
 
 // computeDuration fills DurationSeconds from start and end (or now, while

@@ -52,8 +52,12 @@ type Environment struct {
 	Namespace string    `json:"namespace"`
 	Replicas  int       `json:"replicas"`
 	Resources Resources `json:"resources"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	// Port the app listens on; HealthCheckPath (optional) answers 2xx when
+	// the app is ready. Together they drive the Service and the probes.
+	Port            int       `json:"port"`
+	HealthCheckPath *string   `json:"health_check_path"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // Resources are Kubernetes container requests/limits in quantity syntax.
@@ -102,6 +106,20 @@ func validateNamespace(ns string, errs map[string]string) {
 		errs["namespace"] = "must be a DNS-1123 label (lowercase letters, digits, hyphens; max 63)"
 	case reservedNamespaces[ns] || strings.HasPrefix(ns, "kube-"):
 		errs["namespace"] = "is reserved"
+	}
+}
+
+var healthPathRE = regexp.MustCompile(`^/[A-Za-z0-9._~/%-]{0,199}$`)
+
+func validatePort(p int, errs map[string]string) {
+	if p < 1 || p > 65535 {
+		errs["port"] = "must be between 1 and 65535"
+	}
+}
+
+func validateHealthPath(p string, errs map[string]string) {
+	if !healthPathRE.MatchString(p) {
+		errs["health_check_path"] = `must be an absolute URL path like "/healthz" (no query string)`
 	}
 }
 
@@ -175,10 +193,12 @@ func ParseMemory(q string) (int64, error) {
 
 // CreateInput is the create-environment request. Zero values take defaults.
 type CreateInput struct {
-	Name      string     `json:"name"`
-	Namespace string     `json:"namespace"`
-	Replicas  *int       `json:"replicas"`
-	Resources *Resources `json:"resources"`
+	Name            string     `json:"name"`
+	Namespace       string     `json:"namespace"`
+	Replicas        *int       `json:"replicas"`
+	Resources       *Resources `json:"resources"`
+	Port            *int       `json:"port"`
+	HealthCheckPath *string    `json:"health_check_path"`
 }
 
 func (in *CreateInput) normalize(projectName string) map[string]string {
@@ -199,8 +219,16 @@ func (in *CreateInput) normalize(projectName string) map[string]string {
 		in.Resources = &r
 	}
 	validateNamespace(in.Namespace, errs)
+	if in.Port == nil {
+		p := 8080
+		in.Port = &p
+	}
 	validateReplicas(*in.Replicas, errs)
 	in.Resources.validate(errs)
+	validatePort(*in.Port, errs)
+	if in.HealthCheckPath != nil {
+		validateHealthPath(*in.HealthCheckPath, errs)
+	}
 	return errs
 }
 
@@ -209,13 +237,22 @@ func (in *CreateInput) normalize(projectName string) map[string]string {
 type UpdateInput struct {
 	Replicas  *int       `json:"replicas"`
 	Resources *Resources `json:"resources"`
+	Port      *int       `json:"port"`
+	// HealthCheckPath: nil leaves it unchanged; "" clears it (TCP probes).
+	HealthCheckPath *string `json:"health_check_path"`
 }
 
 func (in UpdateInput) validate() map[string]string {
 	errs := map[string]string{}
-	if in.Replicas == nil && in.Resources == nil {
-		errs["body"] = "at least one of replicas, resources is required"
+	if in.Replicas == nil && in.Resources == nil && in.Port == nil && in.HealthCheckPath == nil {
+		errs["body"] = "at least one of replicas, resources, port, health_check_path is required"
 		return errs
+	}
+	if in.Port != nil {
+		validatePort(*in.Port, errs)
+	}
+	if in.HealthCheckPath != nil && *in.HealthCheckPath != "" {
+		validateHealthPath(*in.HealthCheckPath, errs)
 	}
 	if in.Replicas != nil {
 		validateReplicas(*in.Replicas, errs)

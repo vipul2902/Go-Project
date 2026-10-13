@@ -83,6 +83,15 @@ How the limits behave:
 - Known trade-off: the per-account limit lets an attacker lock a victim out for up to 15 minutes. That's accepted because it's bounded and visible, and far better than unlimited guessing.
 - If Redis is down, rate limiting **fails open**, which is logged and reported as `degraded` by `/readyz`.
 
+## Workloads in Kubernetes
+
+Details are in [kubernetes.md](kubernetes.md):
+- Each environment gets its own namespace, which enforces the Pod Security **baseline** profile and warns on **restricted**.
+- Containers drop all capabilities, can't escalate privileges, run under seccomp `RuntimeDefault`, and **don't mount service-account tokens**.
+- Secrets are resolved by the kubelet from `secretKeyRef`, so values never pass through CloudDeploy, its database or its logs.
+- The deployer refuses namespaces it doesn't manage, and the worker requires an explicit `KUBE_CONTEXT`.
+- Container output copied into the pipeline log (from crash loops) is sanitized like build output.
+
 ## Request handling
 
 - Request bodies are limited to 1 MiB. Unknown JSON fields are rejected, which prevents mass-assignment tricks such as `"is_admin": true`, and the body must contain exactly one JSON object.

@@ -198,7 +198,8 @@ func snapshot(ctx context.Context, q querier, env environments.Environment) (Con
 	if err != nil {
 		return Config{}, err
 	}
-	return Config{Namespace: env.Namespace, Replicas: env.Replicas, Resources: env.Resources, Variables: vars}, nil
+	return Config{Namespace: env.Namespace, Replicas: env.Replicas, Resources: env.Resources,
+		Port: env.Port, HealthCheckPath: env.HealthCheckPath, Variables: vars}, nil
 }
 
 // Transition moves a deployment to `to` if the state machine allows it from

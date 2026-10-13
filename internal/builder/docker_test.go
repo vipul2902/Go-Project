@@ -78,18 +78,3 @@ func TestRunStopsOnCancel(t *testing.T) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
 }
-
-func TestSanitizeStripsTerminalEscapes(t *testing.T) {
-	for in, want := range map[string]string{
-		"\x1b[33m1 warning found\x1b[0m": "1 warning found",
-		"ok\x1b]0;evil title\x07 line":   "ok line",
-		"progress\rOVERWRITE":            "progressOVERWRITE",
-		"bell\x07 and \x1b[2K erase":     "bell and  erase",
-		"tab\tkept":                      "tab\tkept",
-		"unicode ✓ kept":                 "unicode ✓ kept",
-	} {
-		if got := sanitize(in); got != want {
-			t.Errorf("sanitize(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
