@@ -42,9 +42,9 @@ worker:
   port: 8081
   leaseTTL: 30s
   shutdownTimeout: 30s
-  # docker requires dev.dockerSocket (development only). Production builds
-  # need an isolated remote builder (ADR-008, Phase 18); until then dryrun.
-  builder: dryrun        # docker | dryrun
+  # docker requires dev.dockerSocket (development only). acr runs builds on
+  # ACR Tasks' isolated agents (ADR-008) and requires azure.enabled.
+  builder: dryrun        # docker | acr | dryrun
   deployer: kubernetes   # kubernetes | dryrun
   resources:
     requests: {cpu: 50m, memory: 64Mi}
@@ -59,6 +59,22 @@ web:
   resources:
     requests: {cpu: 10m, memory: 16Mi}
     limits: {cpu: 200m, memory: 64Mi}
+
+# Azure (AKS): secrets come from Key Vault through the Secrets Store CSI
+# driver, authenticated per component with workload identity. Each
+# component gets its own synced Secret with only the keys it needs, and
+# existingSecret is not used. Values come from `terraform output`.
+azure:
+  enabled: false
+  tenantId: ""
+  keyVaultName: ""
+  # azure.workload.identity/client-id per service account.
+  clientIds:
+    api: ""
+    worker: ""
+    migrate: ""
+  # Registry for WORKER_BUILDER=acr (ACR Tasks builds).
+  acrRegistryId: ""
 
 migrations:
   enabled: true          # Helm hook Job before install/upgrade

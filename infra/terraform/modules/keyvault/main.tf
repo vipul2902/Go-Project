@@ -80,31 +80,40 @@ resource "azurerm_private_endpoint" "this" {
   }
 }
 
-# Workload identity: one Azure identity for the app, trusted only for
-# tokens the cluster's OIDC issuer mints for the named service accounts.
-resource "azurerm_user_assigned_identity" "app" {
-  name                = "id-${var.name}-app"
+# Workload identity: one Azure identity PER service account, each trusted
+# only for tokens the cluster's OIDC issuer mints for exactly that account.
+# Separate identities let roles differ: only the worker may run builds.
+resource "azurerm_user_assigned_identity" "workload" {
+  for_each            = toset(var.workload_service_accounts)
+  name                = "id-${var.name}-${each.value}"
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
 }
 
-resource "azurerm_federated_identity_credential" "app" {
+resource "azurerm_federated_identity_credential" "workload" {
   for_each  = toset(var.workload_service_accounts)
   name      = "k8s-${var.workload_namespace}-${each.value}"
-  parent_id = azurerm_user_assigned_identity.app.id
+  parent_id = azurerm_user_assigned_identity.workload[each.value].id
   audience  = ["api://AzureADTokenExchange"]
   issuer    = var.oidc_issuer_url
   subject   = "system:serviceaccount:${var.workload_namespace}:${each.value}"
 }
 
-# Least privilege: the app can read secret values, nothing else.
-resource "azurerm_role_assignment" "app_secrets_user" {
+# Least privilege: each workload can read secret values, nothing else.
+resource "azurerm_role_assignment" "secrets_user" {
+  for_each             = toset(var.workload_service_accounts)
   scope                = azurerm_key_vault.this.id
   role_definition_name = "Key Vault Secrets User"
-  principal_id         = azurerm_user_assigned_identity.app.principal_id
+  principal_id         = azurerm_user_assigned_identity.workload[each.value].principal_id
 }
 
 output "id" { value = azurerm_key_vault.this.id }
+output "name" { value = azurerm_key_vault.this.name }
 output "uri" { value = azurerm_key_vault.this.vault_uri }
-output "app_identity_client_id" { value = azurerm_user_assigned_identity.app.client_id }
+output "workload_client_ids" {
+  value = { for k, v in azurerm_user_assigned_identity.workload : k => v.client_id }
+}
+output "workload_principal_ids" {
+  value = { for k, v in azurerm_user_assigned_identity.workload : k => v.principal_id }
+}

@@ -31,19 +31,20 @@ func TestImageTagIsTenantScoped(t *testing.T) {
 }
 
 func TestValidateRejectsUnsafeInput(t *testing.T) {
-	b := NewDocker(t.TempDir())
 	for name, j := range map[string]deployments.Job{
 		"credentials in url": job("abc1234", "https://u:tok@github.com/a/b"),
 		"ssh url":            job("abc1234", "git@github.com:a/b.git"),
 		"file url":           job("abc1234", "file:///etc"),
 		"option injection":   job("--upload-pack=x", "https://github.com/a/b"),
 		"uppercase sha":      job("ABC1234", "https://github.com/a/b"),
+		"fragment (ref)":     job("abc1234", "https://github.com/a/b#main:other"),
+		"query":              job("abc1234", "https://github.com/a/b?x=1"),
 	} {
-		if err := b.validate(j); err == nil {
+		if err := validateJob(j, false); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	if err := b.validate(job("abc1234", "https://github.com/a/b")); err != nil {
+	if err := validateJob(job("abc1234", "https://github.com/a/b"), false); err != nil {
 		t.Errorf("valid job rejected: %v", err)
 	}
 }

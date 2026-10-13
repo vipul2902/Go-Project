@@ -16,6 +16,9 @@ data:
   WORKER_BUILDER: {{ .Values.worker.builder | quote }}
   WORKER_DEPLOYER: {{ .Values.worker.deployer | quote }}
   BUILD_WORKDIR: /tmp
+  {{- with .Values.azure.acrRegistryId }}
+  ACR_REGISTRY_ID: {{ . | quote }}
+  {{- end }}
   METRICS_PORT: {{ ternary .Values.observability.metrics.apiPort 0 .Values.observability.metrics.enabled | quote }}
   {{- with .Values.observability.otlpEndpoint }}
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ . | quote }}

@@ -45,6 +45,16 @@ variables {
 
 # ---- platform composition ----------------------------------------------
 
+run "only_the_worker_can_build" {
+  command = plan
+  variables { environment = "development" }
+
+  assert {
+    condition     = toset(keys(module.keyvault.workload_client_ids)) == toset(["clouddeploy-api", "clouddeploy-worker", "clouddeploy-migrate"])
+    error_message = "Each service account needs its own identity."
+  }
+}
+
 run "development_has_no_delete_lock" {
   command = plan
   variables { environment = "development" }
@@ -129,6 +139,13 @@ run "acr_has_no_admin_user" {
     error_message = "ACR admin user must be disabled (AKS pulls with its managed identity)."
   }
   assert {
+    condition = (
+      contains(azurerm_role_definition.task_runner.permissions[0].actions, "Microsoft.ContainerRegistry/registries/scheduleRun/action") &&
+      alltrue([for a in azurerm_role_definition.task_runner.permissions[0].actions : !strcontains(a, "*") && !endswith(a, "/delete") && !endswith(a, "/write")])
+    )
+    error_message = "The build role may schedule runs but must have no wildcards, writes or deletes."
+  }
+  assert {
     condition     = azurerm_container_registry.this.retention_policy_in_days == null
     error_message = "Retention policy is Premium-only and must not be set on Basic."
   }
@@ -169,6 +186,10 @@ run "aks_is_identity_only" {
   assert {
     condition     = azurerm_kubernetes_cluster.this.network_profile[0].network_policy == "cilium"
     error_message = "A network policy engine is required for the chart's NetworkPolicies."
+  }
+  assert {
+    condition     = azurerm_kubernetes_cluster.this.key_vault_secrets_provider[0].secret_rotation_enabled
+    error_message = "The Key Vault CSI driver must be enabled, with rotation."
   }
   assert {
     condition     = azurerm_role_assignment.acr_pull.role_definition_name == "AcrPull"
@@ -287,7 +308,7 @@ run "keyvault_is_rbac_and_least_privilege" {
     public_network_access      = false
     oidc_issuer_url            = "https://issuer.example"
     workload_namespace         = "clouddeploy"
-    workload_service_accounts  = ["clouddeploy-api", "clouddeploy-worker"]
+    workload_service_accounts  = ["clouddeploy-api", "clouddeploy-worker", "clouddeploy-migrate"]
     tags                       = {}
   }
 
@@ -296,11 +317,11 @@ run "keyvault_is_rbac_and_least_privilege" {
     error_message = "Key Vault must use RBAC and deny network access by default."
   }
   assert {
-    condition     = azurerm_role_assignment.app_secrets_user.role_definition_name == "Key Vault Secrets User"
-    error_message = "The app identity may only read secrets."
+    condition     = alltrue([for r in azurerm_role_assignment.secrets_user : r.role_definition_name == "Key Vault Secrets User"])
+    error_message = "Workload identities may only read secrets."
   }
   assert {
-    condition     = azurerm_federated_identity_credential.app["clouddeploy-api"].subject == "system:serviceaccount:clouddeploy:clouddeploy-api"
+    condition     = azurerm_federated_identity_credential.workload["clouddeploy-api"].subject == "system:serviceaccount:clouddeploy:clouddeploy-api"
     error_message = "Federation must be scoped to the exact service account."
   }
 }

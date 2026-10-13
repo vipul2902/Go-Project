@@ -1,0 +1,10 @@
+# Fake, non-secret IDs so `make helm-lint` can render the Azure mode offline.
+azure:
+  enabled: true
+  tenantId: 00000000-0000-0000-0000-000000000001
+  keyVaultName: cdtestx1kv
+  clientIds: {api: 00000000-0000-0000-0000-00000000000a, worker: 00000000-0000-0000-0000-00000000000b, migrate: 00000000-0000-0000-0000-00000000000c}
+  acrRegistryId: /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/cdtestx1acr
+image:
+  repository: cdtestx1acr.azurecr.io/clouddeploy
+  tag: test

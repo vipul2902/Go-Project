@@ -26,6 +26,8 @@ locals {
     managed-by  = "terraform"
   })
   is_production = var.environment == "production"
+  # Must match the Helm chart's service account names (release "clouddeploy").
+  service_accounts = ["clouddeploy-api", "clouddeploy-worker", "clouddeploy-migrate"]
 }
 
 resource "azurerm_resource_group" "this" {
@@ -131,12 +133,19 @@ module "keyvault" {
   allowed_ip_ranges          = var.operator_ip_ranges
   oidc_issuer_url            = module.aks.oidc_issuer_url
   workload_namespace         = "clouddeploy"
-  workload_service_accounts  = ["clouddeploy-api", "clouddeploy-worker"]
+  workload_service_accounts  = local.service_accounts
   tags                       = local.tags
 }
 
 # Whoever runs Terraform (a person or the CD pipeline's identity) needs to
 # write the secrets below.
+# The worker's identity may run ACR Tasks builds; no other workload can.
+resource "azurerm_role_assignment" "worker_builds" {
+  scope              = module.acr.id
+  role_definition_id = module.acr.task_runner_role_id
+  principal_id       = module.keyvault.workload_principal_ids["clouddeploy-worker"]
+}
+
 resource "azurerm_role_assignment" "deployer_secrets_officer" {
   scope                = module.keyvault.id
   role_definition_name = "Key Vault Secrets Officer"

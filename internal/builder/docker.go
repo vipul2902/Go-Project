@@ -58,7 +58,7 @@ func ImageTag(job deployments.Job) string {
 // Build implements worker.Builder.
 func (b *Docker) Build(ctx context.Context, job deployments.Job, log worker.LogFunc) (string, error) {
 	d := job.Deployment
-	if err := b.validate(job); err != nil {
+	if err := validateJob(job, b.allowFileRepos); err != nil {
 		return "", err
 	}
 	tag := ImageTag(job)
@@ -120,14 +120,17 @@ func (b *Docker) Build(ctx context.Context, job deployments.Job, log worker.LogF
 	return tag, nil
 }
 
-func (b *Docker) validate(job deployments.Job) error {
-	// Defense in depth: the API already validates these, but the builder
-	// shells out with them, so it re-checks rather than trusting the row.
+// validateJob re-checks the commit and repository URL. Defense in depth: the
+// API already validates them, but builders hand them to git or to ACR, so
+// they re-check rather than trusting the row.
+func validateJob(job deployments.Job, allowFileRepos bool) error {
 	if !shaRE.MatchString(job.Deployment.CommitSHA) {
 		return fmt.Errorf("invalid commit SHA %q", job.Deployment.CommitSHA)
 	}
 	u, err := url.Parse(job.RepositoryURL)
-	if err != nil || u.User != nil || !(u.Scheme == "https" || (b.allowFileRepos && u.Scheme == "file")) {
+	// No fragment or query: ACR Tasks reads "#ref:dir" from the URL, so a
+	// fragment could swap the commit that was approved for another one.
+	if err != nil || u.User != nil || u.Fragment != "" || u.RawQuery != "" || strings.Contains(job.RepositoryURL, "#") || !(u.Scheme == "https" || (allowFileRepos && u.Scheme == "file")) {
 		return errors.New("repository URL must be https without credentials")
 	}
 	return nil

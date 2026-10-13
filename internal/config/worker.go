@@ -17,7 +17,8 @@ type Worker struct {
 	DatabaseURL       string
 	DBMaxConnLifetime time.Duration
 	Concurrency       int
-	Builder           string // "docker" | "dryrun"
+	Builder           string // "docker" | "acr" | "dryrun"
+	ACRRegistryID     string // Azure resource ID of the registry; required for the acr builder
 	Deployer          string // "kubernetes" | "dryrun"
 	KubeContext       string // kubeconfig context; required outside a cluster
 	BuildWorkDir      string
@@ -30,6 +31,7 @@ type Worker struct {
 const (
 	DryRun             = "dryrun"
 	BuilderDocker      = "docker"
+	BuilderACR         = "acr"
 	DeployerKubernetes = "kubernetes"
 )
 
@@ -46,6 +48,7 @@ func loadWorker(getenv func(string) string) (Worker, error) {
 		Concurrency:       parseInt(getenv, "WORKER_CONCURRENCY", 2, &errs),
 		Builder:           getenv("WORKER_BUILDER"),
 		Deployer:          getenv("WORKER_DEPLOYER"),
+		ACRRegistryID:     getenv("ACR_REGISTRY_ID"),
 		KubeContext:       getenv("KUBE_CONTEXT"),
 		BuildWorkDir:      valueOr(getenv("BUILD_WORKDIR"), os.TempDir()),
 		PollInterval:      parseDuration(getenv, "WORKER_POLL_INTERVAL", 5*time.Second, &errs),
@@ -71,8 +74,12 @@ func loadWorker(getenv func(string) string) (Worker, error) {
 	// deployments believing they are real.
 	switch cfg.Builder {
 	case BuilderDocker, DryRun:
+	case BuilderACR:
+		if cfg.ACRRegistryID == "" {
+			errs = append(errs, errors.New("ACR_REGISTRY_ID: required when WORKER_BUILDER=acr"))
+		}
 	case "":
-		errs = append(errs, errors.New(`WORKER_BUILDER: required ("docker" or "dryrun")`))
+		errs = append(errs, errors.New(`WORKER_BUILDER: required ("docker", "acr" or "dryrun")`))
 	default:
 		errs = append(errs, fmt.Errorf("WORKER_BUILDER: unsupported value %q", cfg.Builder))
 	}

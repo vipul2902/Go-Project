@@ -25,3 +25,14 @@ func TestLoadWorker(t *testing.T) {
 		t.Error("unsupported builder accepted")
 	}
 }
+
+func TestLoadWorkerACRNeedsRegistryID(t *testing.T) {
+	base := map[string]string{"DATABASE_URL": "x", "WORKER_BUILDER": "acr", "WORKER_DEPLOYER": "dryrun"}
+	if _, err := loadWorker(env(base)); err == nil || !strings.Contains(err.Error(), "ACR_REGISTRY_ID") {
+		t.Fatalf("err = %v, want ACR_REGISTRY_ID required", err)
+	}
+	base["ACR_REGISTRY_ID"] = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/r"
+	if _, err := loadWorker(env(base)); err != nil {
+		t.Fatal(err)
+	}
+}
