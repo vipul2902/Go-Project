@@ -20,13 +20,13 @@ type Service struct {
 // NewService returns an environment service.
 func NewService(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
 
-const envColumns = `id, project_id, name, namespace, replicas, cpu_request, cpu_limit, memory_request, memory_limit, port, health_check_path, created_at, updated_at`
+const envColumns = `id, project_id, name, namespace, replicas, cpu_request, cpu_limit, memory_request, memory_limit, port, health_check_path, auto_rollback, created_at, updated_at`
 
 func scanEnv(r pgx.CollectableRow) (Environment, error) {
 	var e Environment
 	err := r.Scan(&e.ID, &e.ProjectID, &e.Name, &e.Namespace, &e.Replicas,
 		&e.Resources.CPURequest, &e.Resources.CPULimit, &e.Resources.MemoryRequest, &e.Resources.MemoryLimit,
-		&e.Port, &e.HealthCheckPath, &e.CreatedAt, &e.UpdatedAt)
+		&e.Port, &e.HealthCheckPath, &e.AutoRollback, &e.CreatedAt, &e.UpdatedAt)
 	return e, err
 }
 
@@ -55,9 +55,9 @@ func (s *Service) Create(ctx context.Context, actor audit.Actor, projectID strin
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		r := in.Resources
 		rows, err := tx.Query(ctx, `
-			INSERT INTO environments (project_id, name, namespace, replicas, cpu_request, cpu_limit, memory_request, memory_limit, port, health_check_path)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING `+envColumns,
-			projectID, in.Name, in.Namespace, *in.Replicas, r.CPURequest, r.CPULimit, r.MemoryRequest, r.MemoryLimit, *in.Port, in.HealthCheckPath)
+			INSERT INTO environments (project_id, name, namespace, replicas, cpu_request, cpu_limit, memory_request, memory_limit, port, health_check_path, auto_rollback)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING `+envColumns,
+			projectID, in.Name, in.Namespace, *in.Replicas, r.CPURequest, r.CPULimit, r.MemoryRequest, r.MemoryLimit, *in.Port, in.HealthCheckPath, *in.AutoRollback)
 		if err != nil {
 			return err
 		}
@@ -97,9 +97,10 @@ func (s *Service) Update(ctx context.Context, actor audit.Actor, projectID, name
 				health_check_path = CASE
 					WHEN $9::text IS NULL THEN health_check_path -- not provided: keep
 					WHEN $9::text = ''   THEN NULL               -- "": clear (TCP probes)
-					ELSE $9::text END
+					ELSE $9::text END,
+				auto_rollback  = COALESCE($10, auto_rollback)
 			WHERE project_id = $1 AND name = $2 RETURNING `+envColumns,
-			projectID, name, in.Replicas, cpuReq, cpuLim, memReq, memLim, in.Port, in.HealthCheckPath)
+			projectID, name, in.Replicas, cpuReq, cpuLim, memReq, memLim, in.Port, in.HealthCheckPath, in.AutoRollback)
 		if err != nil {
 			return err
 		}
@@ -108,7 +109,7 @@ func (s *Service) Update(ctx context.Context, actor audit.Actor, projectID, name
 		}
 		return audit.Record(ctx, tx, actor, "environment.updated", "environment", e.ID, map[string]any{
 			"project_id": projectID, "environment": e.Name, "replicas": e.Replicas, "resources": e.Resources,
-			"port": e.Port, "health_check_path": e.HealthCheckPath,
+			"port": e.Port, "health_check_path": e.HealthCheckPath, "auto_rollback": e.AutoRollback,
 		})
 	})
 	return e, err

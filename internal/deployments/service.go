@@ -83,6 +83,14 @@ type CreateParams struct {
 	Environment    environments.Environment
 	CommitSHA      string
 	IdempotencyKey string // optional
+
+	// Rollbacks: restore Config (the target's snapshot) instead of
+	// snapshotting the environment's current configuration.
+	RollbackOf string
+	Config     *Config
+	// AuditAction overrides "deployment.created" (e.g. "deployment.rollback").
+	AuditAction   string
+	AuditMetadata map[string]any
 }
 
 // Create queues a new deployment. It returns replayed=true when an earlier
@@ -103,7 +111,7 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Deployment, bool,
 	}
 
 	var id string
-	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) (err error) {
 		var alive bool
 		if err := tx.QueryRow(ctx,
 			`SELECT true FROM projects WHERE id = $1 AND deleted_at IS NULL FOR SHARE`, p.Project.ID).Scan(&alive); err != nil {
@@ -112,20 +120,32 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (Deployment, bool,
 			}
 			return err
 		}
-		cfg, err := snapshot(ctx, tx, p.Environment)
-		if err != nil {
+		var cfg Config
+		if p.Config != nil {
+			cfg = *p.Config
+		} else if cfg, err = snapshot(ctx, tx, p.Environment); err != nil {
 			return err
 		}
+		// triggered_by is NULL for system-initiated deployments (auto-rollback).
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO deployments (project_id, environment_id, commit_sha, triggered_by, idempotency_key, config)
-			VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6) RETURNING id`,
-			p.Project.ID, p.Environment.ID, p.CommitSHA, p.ActorID, p.IdempotencyKey, cfg).Scan(&id); err != nil {
+			INSERT INTO deployments (project_id, environment_id, commit_sha, triggered_by, idempotency_key, config, rollback_of)
+			VALUES ($1, $2, $3, NULLIF($4, '')::uuid, NULLIF($5, ''), $6, NULLIF($7, '')::uuid) RETURNING id`,
+			p.Project.ID, p.Environment.ID, p.CommitSHA, p.ActorID, p.IdempotencyKey, cfg, p.RollbackOf).Scan(&id); err != nil {
 			return err
+		}
+		action := p.AuditAction
+		if action == "" {
+			action = "deployment.created"
+		}
+		md := map[string]any{"project": p.Project.Name, "environment": p.Environment.Name, "commit_sha": p.CommitSHA}
+		if p.RollbackOf != "" {
+			md["rollback_of"] = p.RollbackOf
+		}
+		for k, v := range p.AuditMetadata {
+			md[k] = v
 		}
 		if err := audit.Record(ctx, tx, audit.Actor{UserID: p.ActorID, OrganizationID: p.Project.OrganizationID},
-			"deployment.created", "deployment", id, map[string]any{
-				"project": p.Project.Name, "environment": p.Environment.Name, "commit_sha": p.CommitSHA,
-			}); err != nil {
+			action, "deployment", id, md); err != nil {
 			return err
 		}
 		// Wake the workers. Delivered only if this transaction commits, so a
@@ -176,7 +196,7 @@ func (s *Service) replay(ctx context.Context, p CreateParams) (Deployment, error
 	if err != nil {
 		return Deployment{}, err
 	}
-	if d.CommitSHA != p.CommitSHA {
+	if d.CommitSHA != p.CommitSHA || deref(d.RollbackOf) != p.RollbackOf {
 		return Deployment{}, ErrIdempotencyMismatch
 	}
 	return d, nil
@@ -326,4 +346,11 @@ func (s *Service) List(ctx context.Context, userID string, f ListFilter, page ht
 func isUnique(err error, constraint string) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == constraint
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

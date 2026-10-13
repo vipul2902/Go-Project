@@ -2,7 +2,7 @@
 
 A cloud-native deployment platform: register an application, define its environments, build it, deploy it to Kubernetes, and track status, health, logs and history — with Azure infrastructure provisioned by Terraform.
 
-> **Status:** Phase 12 (monitoring and logs) complete. Live environment health with drift detection, application logs, and streaming (SSE) pipeline and application logs. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
+> **Status:** Phase 13 (rollback) complete. Roll back to any successful release, or automatically when a rollout fails. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
 
 ## Architecture (target)
 
@@ -95,7 +95,7 @@ Worker settings (used by `cmd/worker`):
 | `/api/v1/organizations/*` | Organizations and member management (RBAC) |
 | `/api/v1/projects/*` | Project CRUD with cursor pagination and ETag concurrency control |
 | `/api/v1/projects/{id}/environments/*` | Environments (replicas, resources, namespace) and variables. Secrets are stored as references only. |
-| `/api/v1/deployments/*` | Create (idempotent and asynchronous), list, get and cancel deployments, and pipeline logs (`?follow=true` streams them) |
+| `/api/v1/deployments/*` | Create (idempotent and asynchronous), list, get, cancel and **roll back** deployments, and pipeline logs (`?follow=true` streams them) |
 | `/api/v1/organizations/{id}/audit` | Audit trail (admin only) |
 | `/api/v1/projects/{id}/environments/{env}/health` | Live health, pod status and drift, read from Kubernetes |
 | `/api/v1/projects/{id}/environments/{env}/logs` | Application logs, with `?follow=true` for live streaming (SSE) |
@@ -119,7 +119,7 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 
 ## Roadmap
 
-0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s ✅ · 11 Helm ✅ · 12 monitoring/logs ✅ · 13 rollback · 14 dashboard · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
+0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s ✅ · 11 Helm ✅ · 12 monitoring/logs ✅ · 13 rollback ✅ · 14 dashboard · 15 test hardening · 16 observability · 17 Terraform · 18 Azure · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
 
 ## Documentation
 

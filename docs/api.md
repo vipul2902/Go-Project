@@ -92,7 +92,7 @@ Base path: `/projects/{id}/environments`. `{env}` is `development`, `staging` or
 | `GET /` | viewer | Listed in promotion order: development, staging, production |
 | `POST /` | developer (**admin for production**) | `name`, plus optional `namespace` (default `<project>-dev`, `-staging` or `-prod`), `replicas` (0–20, default 1), `resources`, `port` and `health_check_path` |
 | `GET /{env}` | viewer | |
-| `PATCH /{env}` | developer (**admin for production**) | Any of `replicas`, `resources`, `port` and `health_check_path`. All four resource values are replaced together, so each request/limit pair is always validated as a pair. |
+| `PATCH /{env}` | developer (**admin for production**) | Any of `replicas`, `resources`, `port`, `health_check_path` and `auto_rollback`. All four resource values are replaced together, so each request/limit pair is always validated as a pair. |
 | `DELETE /{env}` | admin | 409 `ENVIRONMENT_HAS_DEPLOYMENTS` if it has deployment history |
 
 `port` (1–65535, default 8080) is the port the app listens on. `health_check_path` (optional, for example `/healthz`) must answer 2xx when the app is ready; without it, readiness checks the TCP port. In a `PATCH`, `"health_check_path": ""` clears it.
@@ -128,6 +128,8 @@ Deployments are asynchronous: creating one returns `202 Accepted` with status `Q
 | `GET /deployments` | viewer | Filters: `project_id`, `environment`, `status`. Newest first, cursor pagination |
 | `GET /deployments/{id}` | viewer | Includes `config` (the snapshot), `duration_seconds` and `triggered_by` |
 | `POST /deployments/{id}/cancel` | developer (**admin for production**) | 409 `INVALID_TRANSITION` if the deployment has already finished. A running build or deploy is stopped within one heartbeat. |
+| `POST /deployments/{id}/rollback` | developer (**admin for production**) | Restores deployment `{id}`'s exact snapshot as a new deployment (`rollback_of`). Returns 202, plus `warnings` listing how the environment's current config differs. 422 `INVALID_ROLLBACK_TARGET`, 409 `ALREADY_CURRENT`. `Idempotency-Key` is supported. |
+| `POST /projects/{id}/environments/{env}/rollback` | developer (**admin for production**) | Restores the previous release. 409 `NO_PREVIOUS_RELEASE` |
 | `GET /deployments/{id}/logs` | viewer | Pipeline log lines, oldest first. `?after=<id>` (to tail) and `?limit` (1–1000, default 200). The response includes `next_after` and the current `status`. **`?follow=true`** streams Server-Sent Events instead (see below). |
 
 ## Monitoring
