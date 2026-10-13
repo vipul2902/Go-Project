@@ -20,8 +20,12 @@ spec:
       labels:
         {{- include "clouddeploy.labels" . | nindent 8 }}
         app.kubernetes.io/component: migrate
+        {{- include "clouddeploy.wiLabel" . | nindent 8 }}
     spec:
       restartPolicy: Never
+      {{- if .Values.azure.enabled }}
+      serviceAccountName: {{ $fullname }}-migrate
+      {{- end }}
       automountServiceAccountToken: false
       securityContext: {{- include "clouddeploy.podSecurityContext" . | nindent 8 }}
       containers:
@@ -32,11 +36,15 @@ spec:
           # Hooks run before the release's ConfigMap exists: secret only.
           env:
             - name: DATABASE_URL
-              valueFrom: {secretKeyRef: {name: {{ .Values.existingSecret }}, key: DATABASE_URL}}
+              valueFrom: {secretKeyRef: {name: {{ include "clouddeploy.secretName" (dict "root" . "component" "migrate") }}, key: DATABASE_URL}}
           resources:
             requests: {cpu: 10m, memory: 16Mi}
             limits: {cpu: 200m, memory: 64Mi}
           securityContext: {{- include "clouddeploy.containerSecurityContext" . | nindent 12 }}
+          {{- if .Values.azure.enabled }}
+          volumeMounts: {{- include "clouddeploy.kvMount" . | nindent 12 }}
+      volumes: {{- include "clouddeploy.kvVolume" (dict "root" . "component" "migrate") | nindent 8 }}
+          {{- end }}
 {{- end }}
 {{- if .Values.seed.enabled }}
 ---

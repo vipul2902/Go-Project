@@ -51,7 +51,7 @@ Terraform state usually contains every attribute of every resource, including pa
 2. **Write-only arguments.** The values reach Azure only through `administrator_password_wo` (PostgreSQL) and `value_wo` (Key Vault secrets). Azure receives them, but Terraform stores neither the value nor a hash.
 3. **Rotation.** Write-only values are sent only when their `*_wo_version` changes, so rotating means `secrets_version = 2`. The next apply generates new values and writes the password and the `database-url` secret together. Note that the running pods keep the old `DATABASE_URL` until they restart.
 4. **No credentials in the cluster spec.**
-   - The API and worker read Key Vault through **workload identity**: a user-assigned identity federated with exactly `system:serviceaccount:clouddeploy:clouddeploy-api` (and `-worker`).
+   - The API and worker read Key Vault through **workload identity**: a user-assigned identity federated with exactly one service account (`clouddeploy-api`, `clouddeploy-worker` and `clouddeploy-migrate` each have their own identity).
    - That identity holds only the `Key Vault Secrets User` role.
    - AKS pulls images with the kubelet identity (`AcrPull`).
    - No client secret, registry password or static kubeconfig exists.
@@ -106,5 +106,6 @@ Outputs carry names and endpoints only, never secret values:
 - `acr_login_server`
 - `aks_name`
 - `key_vault_uri`
-- `app_identity_client_id` (annotated onto the service accounts)
+- `workload_client_ids`: one identity per service account (api, worker, migrate), annotated onto the service accounts
+- `acr_id`, `key_vault_name`, `tenant_id`
 - `key_vault_secret_names`

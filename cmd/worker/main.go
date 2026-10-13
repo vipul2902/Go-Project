@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"log/slog"
 	"net/http"
 	"os"
@@ -82,9 +83,25 @@ func run() error {
 		return svc.QueueStats(qctx)
 	})
 	pipeline := worker.Pipeline{Builder: worker.DryRun{}, Deployer: worker.DryRun{}}
-	if cfg.Builder == config.BuilderDocker {
+	switch cfg.Builder {
+	case config.BuilderDocker:
 		pipeline.Builder = builder.NewDocker(cfg.BuildWorkDir)
-	} else {
+	case config.BuilderACR:
+		// Workload identity in AKS (env injected by the webhook); az login
+		// when run locally. No client secret is ever configured.
+		cred, err := azidentity.NewDefaultAzureCredential(nil)
+		if err != nil {
+			return fmt.Errorf("azure credential: %w", err)
+		}
+		actx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		b, err := builder.NewACR(actx, cfg.ACRRegistryID, cred)
+		cancel()
+		if err != nil {
+			return err
+		}
+		logger.Info("ACR Tasks builder ready")
+		pipeline.Builder = b
+	default:
 		logger.Warn("WORKER_BUILDER=dryrun: images are not built")
 	}
 	if cfg.Deployer == config.DeployerKubernetes {

@@ -41,3 +41,4 @@ web/dist/
 
 # Terraform backend settings (storage account names etc.)
 backend.hcl
+deploy/helm/clouddeploy/values-azure.generated.yaml

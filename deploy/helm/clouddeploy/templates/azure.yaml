@@ -1,0 +1,64 @@
+{{- if .Values.azure.enabled -}}
+{{- $fullname := include "clouddeploy.fullname" . -}}
+{{- /*
+Key Vault secrets per component. Each SecretProviderClass authenticates as
+that component's workload identity and syncs ONLY the keys it needs into a
+Kubernetes Secret (<fullname>-<component>-kv) for envFrom. The synced
+Secret exists while a pod mounts the CSI volume.
+
+The migrate class and service account are pre-install/pre-upgrade hooks:
+the migration Job runs before the release's normal resources exist.
+*/ -}}
+{{- $components := dict
+  "api" (list (list "database-url" "DATABASE_URL") (list "redis-url" "REDIS_URL") (list "jwt-secret" "JWT_SECRET"))
+  "worker" (list (list "database-url" "DATABASE_URL"))
+  "migrate" (list (list "database-url" "DATABASE_URL"))
+}}
+{{- range $component := list "api" "worker" "migrate" }}
+{{- $keys := index $components $component }}
+---
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: {{ $fullname }}-{{ $component }}
+  labels: {{- include "clouddeploy.labels" $ | nindent 4 }}
+  {{- if eq $component "migrate" }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation
+  {{- end }}
+spec:
+  provider: azure
+  parameters:
+    usePodIdentity: "false"
+    clientID: {{ index $.Values.azure.clientIds $component | quote }}
+    keyvaultName: {{ $.Values.azure.keyVaultName | quote }}
+    tenantId: {{ $.Values.azure.tenantId | quote }}
+    objects: |
+      array:
+      {{- range $keys }}
+        - |
+          objectName: {{ index . 0 }}
+          objectType: secret
+      {{- end }}
+  secretObjects:
+    - secretName: {{ $fullname }}-{{ $component }}-kv
+      type: Opaque
+      data:
+      {{- range $keys }}
+        - {objectName: {{ index . 0 }}, key: {{ index . 1 }}}
+      {{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fullname }}-migrate
+  labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+  annotations:
+    azure.workload.identity/client-id: {{ .Values.azure.clientIds.migrate | quote }}
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation
+{{- end }}

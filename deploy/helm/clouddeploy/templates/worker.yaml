@@ -5,6 +5,9 @@ kind: ServiceAccount
 metadata:
   name: {{ $fullname }}-worker
   labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+  {{- if .Values.azure.enabled }}
+  annotations: {azure.workload.identity/client-id: {{ .Values.azure.clientIds.worker | quote }}}
+  {{- end }}
 ---
 # Least privilege for the deployer: exactly the verbs it uses, cluster-wide
 # because tenant namespaces are created on demand. It cannot read Secrets
@@ -62,6 +65,7 @@ spec:
       labels:
         {{- include "clouddeploy.labels" . | nindent 8 }}
         app.kubernetes.io/component: worker
+        {{- include "clouddeploy.wiLabel" . | nindent 8 }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         {{- if .Values.observability.metrics.enabled }}
@@ -91,7 +95,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           envFrom:
             - configMapRef: {name: {{ $fullname }}}
-            - secretRef: {name: {{ .Values.existingSecret }}}
+            - secretRef: {name: {{ include "clouddeploy.secretName" (dict "root" . "component" "worker") }}}
           env:
             - {name: SHUTDOWN_TIMEOUT, value: {{ .Values.worker.shutdownTimeout | quote }}}
           ports:
@@ -111,12 +115,14 @@ spec:
           {{- end }}
           volumeMounts:
             - {name: tmp, mountPath: /tmp}
+            {{- include "clouddeploy.kvMount" . | nindent 12 }}
             {{- if $socket }}
             - {name: docker-sock, mountPath: /var/run/docker.sock}
             {{- end }}
       volumes:
         - name: tmp
           emptyDir: {sizeLimit: 2Gi}
+        {{- include "clouddeploy.kvVolume" (dict "root" . "component" "worker") | nindent 8 }}
         {{- if $socket }}
         - name: docker-sock
           hostPath: {path: {{ .Values.dev.dockerSocket.path }}, type: Socket}

@@ -9,7 +9,7 @@ The worker must turn a repository and commit into a container image. Building me
 ## Decision
 **Local development:** the worker runs the `git` and `docker` command-line tools as subprocesses against the developer's own Docker daemon (Colima). Images stay in that daemon, with no registry.
 
-**Production (Phase 18 and later):** builds run in an **isolated, rootless builder**: ACR Tasks, or BuildKit rootless or kaniko as a Kubernetes Job in a dedicated node pool. They push to a registry (ACR), and the cluster pulls from it. The worker never gets a Docker socket.
+**Production (Phase 18):** builds run on **ACR Tasks** (`WORKER_BUILDER=acr`). Azure clones the repository at the commit and builds on ephemeral, Azure-managed agents outside the cluster, then pushes to ACR, and the cluster pulls with its kubelet identity. The worker never gets a Docker socket. It authenticates with workload identity and holds a custom role limited to scheduling, reading, log access and cancelling runs. BuildKit rootless or kaniko in a dedicated node pool remain the alternative where builds must stay inside the cluster.
 
 ## Why the command-line tools rather than Go SDKs (go-git, the Docker Engine API)
 - They're the exact commands developers and CI run, so failures can be reproduced by hand.

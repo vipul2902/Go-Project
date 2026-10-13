@@ -156,6 +156,14 @@ resource "azurerm_kubernetes_cluster" "this" {
     load_balancer_sku   = "standard"
   }
 
+  # Secrets Store CSI driver: mounts Key Vault secrets into pods (and syncs
+  # them to a Kubernetes Secret for envFrom), authenticating with each
+  # pod's workload identity. Rotation re-reads Key Vault periodically.
+  key_vault_secrets_provider {
+    secret_rotation_enabled  = true
+    secret_rotation_interval = "2m"
+  }
+
   oms_agent {
     log_analytics_workspace_id      = azurerm_log_analytics_workspace.this.id
     msi_auth_for_monitoring_enabled = true

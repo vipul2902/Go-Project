@@ -1,0 +1,24 @@
+# AKS (Azure). Layered on top of values-<env>.yaml:
+#   -f values-staging.yaml -f values-azure.yaml -f values-azure.generated.yaml
+# The generated file (git-ignored) holds the environment's IDs from
+# `terraform output` (make azure-values): registry, Key Vault, tenant and
+# workload identity client IDs. None of them are secrets.
+azure:
+  enabled: true
+image:
+  pullPolicy: IfNotPresent
+worker:
+  # Tenant builds run on ACR Tasks' isolated agents, never in the cluster.
+  builder: acr
+  deployer: kubernetes
+# Public exposure (ingress + TLS) needs a domain you own; until one is
+# configured the dashboard is reached with make azure-forward.
+ingress:
+  enabled: false
+networkPolicy:
+  enabled: true
+  ingressNamespaceLabels:
+    kubernetes.io/metadata.name: app-routing-system
+config:
+  # AKS CNI overlay pod range (aks module network_profile.pod_cidr).
+  trustedProxyCIDRs: "10.244.0.0/16"

@@ -4,6 +4,9 @@ kind: ServiceAccount
 metadata:
   name: {{ $fullname }}-api
   labels: {{- include "clouddeploy.labels" . | nindent 4 }}
+  {{- if .Values.azure.enabled }}
+  annotations: {azure.workload.identity/client-id: {{ .Values.azure.clientIds.api | quote }}}
+  {{- end }}
 ---
 # Read-only access for monitoring (environment health, application logs).
 # No Secrets, no writes, no exec. Tenant isolation is enforced by the API:
@@ -56,6 +59,7 @@ spec:
       labels:
         {{- include "clouddeploy.labels" . | nindent 8 }}
         app.kubernetes.io/component: api
+        {{- include "clouddeploy.wiLabel" . | nindent 8 }}
       annotations:
         # Roll pods when non-secret config changes.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
@@ -78,7 +82,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           envFrom:
             - configMapRef: {name: {{ $fullname }}}
-            - secretRef: {name: {{ .Values.existingSecret }}}
+            - secretRef: {name: {{ include "clouddeploy.secretName" (dict "root" . "component" "api") }}}
           env:
             - {name: SHUTDOWN_TIMEOUT, value: {{ .Values.api.shutdownTimeout | quote }}}
           ports:
@@ -103,6 +107,10 @@ spec:
               sleep: {seconds: 5}
           resources: {{- toYaml .Values.api.resources | nindent 12 }}
           securityContext: {{- include "clouddeploy.containerSecurityContext" . | nindent 12 }}
+          {{- if .Values.azure.enabled }}
+          volumeMounts: {{- include "clouddeploy.kvMount" . | nindent 12 }}
+      volumes: {{- include "clouddeploy.kvVolume" (dict "root" . "component" "api") | nindent 8 }}
+          {{- end }}
 ---
 apiVersion: v1
 kind: Service

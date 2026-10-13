@@ -2,7 +2,7 @@
 
 A cloud-native deployment platform: register an application, define its environments, build it, deploy it to Kubernetes, and track status, health, logs and history — with Azure infrastructure provisioned by Terraform.
 
-> **Status:** Phase 17 (Terraform) complete. Azure infrastructure for dev, staging and prod, written as code: AKS, ACR, PostgreSQL, Managed Redis, Key Vault and private networking. Secrets never enter Terraform state. Validated and tested offline; nothing has been applied to Azure. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
+> **Status:** Phase 18 (Azure) in progress. CloudDeploy is ready to run on AKS: tenant images built by ACR Tasks, secrets from Key Vault via workload identity, one-command deploy. Provisioning in a live subscription is the remaining step. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
 
 ## Screenshots
 
@@ -69,6 +69,7 @@ curl localhost:8080/readyz
 | `make k8s-deploy` / `make k8s-forward` / `make k8s-uninstall` | Run CloudDeploy itself in the cluster with Helm (dev values). `k8s-forward` opens the dashboard on http://localhost:8080. |
 | `make obs-up` / `make obs-down` | Opt-in Prometheus, Grafana and Jaeger (see [docs/observability.md](docs/observability.md)) |
 | `make terraform-check` / `make terraform-plan ENV=dev` | Offline fmt, validate and mocked tests; a real plan (needs `az login`). No apply target, on purpose (see [docs/terraform.md](docs/terraform.md)). |
+| `make azure-images` / `azure-deploy` / `azure-forward` / `azure-stop` | Build on ACR Tasks, deploy to AKS, open the dashboard, pause billing (see [docs/azure.md](docs/azure.md)) |
 | `make web-dev` / `make web-check` | Dashboard dev server; type-check, lint, test and build the dashboard |
 
 ## Configuration
@@ -97,7 +98,7 @@ Worker settings (used by `cmd/worker`):
 
 | Variable | Default | Notes |
 |---|---|---|
-| `WORKER_BUILDER` | *(required)* | `docker` builds images with the local git and docker CLIs; `dryrun` simulates the build. Required on purpose, so nobody mistakes simulated builds for real ones. |
+| `WORKER_BUILDER` | *(required)* | `docker` builds images with the local git and docker CLIs; `acr` builds on ACR Tasks (needs `ACR_REGISTRY_ID`); `dryrun` simulates the build. Required on purpose, so nobody mistakes simulated builds for real ones. |
 | `WORKER_DEPLOYER` | *(required)* | `kubernetes` applies the app and waits for the rollout; `dryrun` simulates it |
 | `KUBE_CONTEXT` | *(required outside a cluster)* | The kubeconfig context to deploy to, for example `colima`. It must be explicit so the worker never deploys to the wrong cluster. |
 | `BUILD_WORKDIR` | OS temp dir | Where temporary checkouts are created; each build's directory is deleted afterwards |
@@ -148,6 +149,7 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 - [Testing strategy: fuzzing, model-based tests, benchmarks](docs/testing.md)
 - [Observability: metrics, traces, logs, alerts](docs/observability.md)
 - [Terraform: Azure infrastructure, secrets kept out of state](docs/terraform.md)
+- [Running on Azure (AKS): ACR Tasks builds, Key Vault, deploy steps](docs/azure.md)
 - [Dashboard](docs/frontend.md)
 - [Architecture decisions](docs/adr/)
 - [Local development](docs/local-development.md)

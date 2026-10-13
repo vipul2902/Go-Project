@@ -37,5 +37,25 @@ resource "azurerm_container_registry" "this" {
   tags                     = var.tags
 }
 
+# ACR Tasks: exactly the actions the worker's builder calls, instead of the
+# built-in Contributor role (which could also delete the registry).
+resource "azurerm_role_definition" "task_runner" {
+  name        = "ACR Task Runner (${var.name})"
+  scope       = azurerm_container_registry.this.id
+  description = "Schedule, watch, read logs of and cancel ACR Tasks runs."
+  permissions {
+    actions = [
+      "Microsoft.ContainerRegistry/registries/read",
+      "Microsoft.ContainerRegistry/registries/scheduleRun/action",
+      "Microsoft.ContainerRegistry/registries/runs/read",
+      "Microsoft.ContainerRegistry/registries/runs/listLogSasUrl/action",
+      "Microsoft.ContainerRegistry/registries/runs/cancel/action",
+    ]
+  }
+  assignable_scopes = [azurerm_container_registry.this.id]
+}
+
 output "id" { value = azurerm_container_registry.this.id }
 output "login_server" { value = azurerm_container_registry.this.login_server }
+output "name" { value = azurerm_container_registry.this.name }
+output "task_runner_role_id" { value = azurerm_role_definition.task_runner.role_definition_resource_id }
