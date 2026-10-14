@@ -26,7 +26,7 @@ RUN for cmd in api worker migrate seed; do \
 # images through the node's Docker socket. Socket access is root-equivalent
 # on the node, so this image runs as root and must never be used in
 # production (the Helm chart refuses it there). See ADR-008.
-FROM alpine:3.22 AS worker-builder
+FROM alpine:3.24 AS worker-builder
 RUN apk add --no-cache git docker-cli docker-cli-buildx ca-certificates
 COPY --from=builder /out/worker /worker
 ENTRYPOINT ["/worker"]
