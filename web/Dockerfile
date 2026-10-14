@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 # ---- build: compile the React app ----
-FROM node:24-alpine AS build
+# The bundle is platform-independent: build it natively, once.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund

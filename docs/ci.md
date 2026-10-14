@@ -1,10 +1,10 @@
 # Continuous integration
 
-GitHub Actions runs every check on each push to `main` and on every pull request. It doesn't deploy anything and needs no cloud credentials.
+GitHub Actions runs every check on every pull request. On pushes to `main` and version tags, the CD pipeline ([cd.md](cd.md)) calls the same workflow first, so nothing is published without passing it. CI itself doesn't deploy anything and needs no cloud credentials.
 
 ## Workflows
 
-**[`ci.yml`](../.github/workflows/ci.yml)** runs on pushes to main, pull requests, and manual dispatch. Its jobs run in parallel:
+**[`ci.yml`](../.github/workflows/ci.yml)** runs on pull requests and manual dispatch, and as the first stage of CD. Its jobs run in parallel:
 
 | Job | What it runs | Local equivalent |
 |---|---|---|
@@ -32,7 +32,7 @@ GitHub Actions runs every check on each push to `main` and on every pull request
 - **Least privilege.** The workflow token is `contents: read` only. No job can push, comment or publish.
 - **No secrets.** The test databases use throwaway credentials that exist only for the length of the job. No repository secrets are defined, so pull requests from forks run the full suite safely.
 - **Same tools and versions as local.** golangci-lint v2.14.0, Terraform 1.16.5, Helm v4.3.0, Node 24. Go comes from `go.mod`. Each job maps to a Make target, so a CI failure can be reproduced with one local command.
-- **Images are built but never pushed.** Publishing belongs to CD (Phase 20).
+- **CI builds images but never pushes them.** Publishing is CD's job, after CI passes.
 - **Concurrency.** A new push to a pull request cancels its superseded run. Runs on `main` always finish.
 
 ## Findings from setting up CI

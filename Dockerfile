@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 
 # ---- build stage: compile static Go binaries ----
-FROM golang:1.27.2-alpine AS builder
+# Runs on the build machine's own platform and cross-compiles for the target
+# (Go needs no emulation for that), so multi-arch release builds stay fast.
+FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine AS builder
 WORKDIR /src
 
 # Copy module files first so dependency download is cached across code changes.
@@ -10,10 +12,12 @@ RUN go mod download
 
 COPY . .
 ARG VERSION=dev
+ARG TARGETOS=linux
+ARG TARGETARCH
 # CGO disabled -> fully static binaries that run on distroless/static.
 # -trimpath and -buildvcs=false make builds reproducible across machines.
 RUN for cmd in api worker migrate seed; do \
-      CGO_ENABLED=0 go build -trimpath -buildvcs=false \
+      CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -buildvcs=false \
         -ldflags="-s -w -X main.version=${VERSION}" -o /out/$cmd ./cmd/$cmd || exit 1; \
     done
 

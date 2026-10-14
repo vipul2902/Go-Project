@@ -1,6 +1,6 @@
 # CloudDeploy
 
-[![CI](https://github.com/vipul2902/Go-Project/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/vipul2902/Go-Project/actions/workflows/ci.yml)
+[![CI/CD](https://github.com/vipul2902/Go-Project/actions/workflows/cd.yml/badge.svg?branch=main)](https://github.com/vipul2902/Go-Project/actions/workflows/cd.yml)
 
 A cloud-native deployment platform: register an application, define its environments, build it, deploy it to Kubernetes, and track status, health, logs and history — with Azure infrastructure provisioned by Terraform.
 
@@ -39,7 +39,7 @@ It is a **modular monolith**: one deployable Go binary with clear internal packa
 | Data | PostgreSQL, Redis *(Phase 2 / 7)* |
 | Runtime | Docker (distroless, non-root), Kubernetes + Helm *(Phase 10–11)* |
 | Cloud | Terraform 1.16 (azurerm 4.x): AKS, ACR, PostgreSQL Flexible Server, Managed Redis, Key Vault (see [docs/azure.md](docs/azure.md)) |
-| CI/CD | GitHub Actions: lint, unit, integration, k3s, dashboard, Helm, Terraform, image scans ([docs/ci.md](docs/ci.md)) |
+| CI/CD | GitHub Actions: CI ([docs/ci.md](docs/ci.md)); signed multi-arch images and Helm chart on GHCR, end-to-end deploy test, releases ([docs/cd.md](docs/cd.md)) |
 
 ## Quick start
 
@@ -70,6 +70,7 @@ curl localhost:8080/readyz
 | `make k8s-up` / `make k8s-down` / `make test-k8s` | Local Kubernetes (Colima k3s) and the deployer tests against it |
 | `make helm-lint` | Lint the Helm chart with every values file and check its safety guards |
 | `make k8s-deploy` / `make k8s-forward` / `make k8s-uninstall` | Run CloudDeploy itself in the cluster with Helm (dev values). `k8s-forward` opens the dashboard on http://localhost:8080. |
+| `make e2e` | End-to-end: install the chart beside dev and drive a real deployment through the API (same script as CD) |
 | `make obs-up` / `make obs-down` | Opt-in Prometheus, Grafana and Jaeger (see [docs/observability.md](docs/observability.md)) |
 | `make terraform-check` / `make terraform-plan ENV=dev` | Offline fmt, validate and mocked tests; a real plan (needs `az login`). No apply target, on purpose (see [docs/terraform.md](docs/terraform.md)). |
 | `make azure-images` / `azure-deploy` / `azure-forward` / `azure-stop` | Build on ACR Tasks, deploy to AKS, open the dashboard, pause billing (see [docs/azure.md](docs/azure.md)) |
@@ -151,6 +152,7 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 - [API reference](docs/api.md)
 - [Testing strategy: fuzzing, model-based tests, benchmarks](docs/testing.md)
 - [Continuous integration: workflows, pinned actions, scanners](docs/ci.md)
+- [Continuous delivery: signed images, end-to-end test, releases](docs/cd.md)
 - [Observability: metrics, traces, logs, alerts](docs/observability.md)
 - [Terraform: Azure infrastructure, secrets kept out of state](docs/terraform.md)
 - [Running on Azure (AKS): ACR Tasks builds, Key Vault, deploy steps](docs/azure.md)
