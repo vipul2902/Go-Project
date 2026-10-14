@@ -59,6 +59,10 @@ type Config struct {
 // Load reads configuration from the environment, applying defaults and
 // validating the result. It returns every validation problem at once so a
 // misconfigured deployment can be fixed in a single pass.
+// maxDBConns caps the pool per process; PostgreSQL's own max_connections is
+// usually a few hundred, and pool sizes are int32 in pgx.
+const maxDBConns = 1000
+
 func Load() (Config, error) {
 	return load(os.Getenv)
 }
@@ -108,8 +112,8 @@ func load(getenv func(string) string) (Config, error) {
 	if cfg.DatabaseURL == "" {
 		errs = append(errs, errors.New("DATABASE_URL: required"))
 	}
-	if cfg.DBMaxConns < 1 || cfg.DBMinConns < 0 || cfg.DBMinConns > cfg.DBMaxConns {
-		errs = append(errs, fmt.Errorf("DB_MAX_CONNS/DB_MIN_CONNS: need 0 <= min (%d) <= max (%d), max >= 1", cfg.DBMinConns, cfg.DBMaxConns))
+	if cfg.DBMaxConns < 1 || cfg.DBMaxConns > maxDBConns || cfg.DBMinConns < 0 || cfg.DBMinConns > cfg.DBMaxConns {
+		errs = append(errs, fmt.Errorf("DB_MAX_CONNS/DB_MIN_CONNS: need 0 <= min (%d) <= max (%d), 1 <= max <= %d", cfg.DBMinConns, cfg.DBMaxConns, maxDBConns))
 	}
 
 	switch cfg.Env {
@@ -135,8 +139,8 @@ func (c Config) Addr() string { return fmt.Sprintf(":%d", c.Port) }
 // PoolConfig returns the database pool settings.
 func (c Config) PoolConfig() database.PoolConfig {
 	return database.PoolConfig{
-		MaxConns:        int32(c.DBMaxConns),
-		MinConns:        int32(c.DBMinConns),
+		MaxConns:        int32(c.DBMaxConns), //nolint:gosec // G115: validated to 1..maxDBConns
+		MinConns:        int32(c.DBMinConns), //nolint:gosec // G115: validated to 0..DBMaxConns
 		MaxConnLifetime: c.DBMaxConnLifetime,
 		MaxConnIdleTime: c.DBMaxConnIdleTime,
 	}

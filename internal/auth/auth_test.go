@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -73,7 +74,7 @@ func TestVerifyRejects(t *testing.T) {
 		"wrong issuer": wrongIssuer, "no expiry": noExpiry, "tampered": tampered, "garbage": "abc",
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := ti.Verify(tok); err != ErrInvalidToken {
+			if _, err := ti.Verify(tok); !errors.Is(err, ErrInvalidToken) {
 				t.Errorf("err = %v, want ErrInvalidToken", err)
 			}
 		})

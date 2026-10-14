@@ -81,7 +81,7 @@ func Deployment(job deployments.Job, image string) (*acappsv1.DeploymentApplyCon
 		// Tags are immutable commit SHAs, so a cached image is always right;
 		// locally built images are never pulled from a registry.
 		WithImagePullPolicy(corev1.PullIfNotPresent).
-		WithPorts(accorev1.ContainerPort().WithName(portName).WithContainerPort(int32(c.Port)).WithProtocol(corev1.ProtocolTCP)).
+		WithPorts(accorev1.ContainerPort().WithName(portName).WithContainerPort(int32(c.Port)).WithProtocol(corev1.ProtocolTCP)). //nolint:gosec // G115: port validated to 1..65535
 		WithEnv(envVars(job)...).
 		WithResources(resources).
 		WithReadinessProbe(readinessProbe(c)).
@@ -97,7 +97,7 @@ func Deployment(job deployments.Job, image string) (*acappsv1.DeploymentApplyCon
 			"clouddeploy.dev/commit-sha":    d.CommitSHA,
 		}).
 		WithSpec(acappsv1.DeploymentSpec().
-			WithReplicas(int32(c.Replicas)).
+			WithReplicas(int32(c.Replicas)). //nolint:gosec // G115: replicas validated to 0..MaxReplicas
 			WithRevisionHistoryLimit(5).
 			// Kubernetes marks the rollout failed if it makes no progress for 5m.
 			WithProgressDeadlineSeconds(300).

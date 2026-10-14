@@ -117,7 +117,7 @@ func (s store) rotateRefreshToken(ctx context.Context, oldHash, newHash []byte, 
 	if err != nil {
 		return "", err
 	}
-	defer tx.Rollback(ctx) // no-op after Commit
+	defer func() { _ = tx.Rollback(ctx) }() // no-op after Commit
 
 	var id, userID, familyID string
 	var expiresAt time.Time

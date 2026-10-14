@@ -2,6 +2,7 @@ package builder
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -75,7 +76,7 @@ func TestRunStopsOnCancel(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- b.run(ctx, t.TempDir(), func(string, string) {}, nil, "sleep", "30") }()
 	cancel()
-	if err := <-done; err != context.Canceled {
+	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
 }

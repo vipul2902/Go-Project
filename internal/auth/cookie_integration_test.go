@@ -11,7 +11,16 @@ import (
 
 // browserCall sends a request the way the dashboard does, optionally with
 // the refresh cookie and the X-Auth-Mode header.
-func browserCall(t *testing.T, e env, path string, body any, cookie *http.Cookie, cookieHeader bool) (*http.Response, map[string]any) {
+// browserResp is what the tests inspect: the body is read and closed inside
+// browserCall, so no caller holds an open response.
+type browserResp struct {
+	StatusCode int
+	cookies    []*http.Cookie
+}
+
+func (r browserResp) Cookies() []*http.Cookie { return r.cookies }
+
+func browserCall(t *testing.T, e env, path string, body any, cookie *http.Cookie, cookieHeader bool) (browserResp, map[string]any) {
 	t.Helper()
 	var buf bytes.Buffer
 	if body != nil {
@@ -34,10 +43,10 @@ func browserCall(t *testing.T, e env, path string, body any, cookie *http.Cookie
 	defer resp.Body.Close()
 	var m map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&m)
-	return resp, m
+	return browserResp{StatusCode: resp.StatusCode, cookies: resp.Cookies()}, m
 }
 
-func refreshCookieOf(resp *http.Response) *http.Cookie {
+func refreshCookieOf(resp browserResp) *http.Cookie {
 	for _, c := range resp.Cookies() {
 		if c.Name == "cd_refresh" {
 			return c

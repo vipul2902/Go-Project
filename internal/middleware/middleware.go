@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -112,7 +113,7 @@ func Recover(logger *slog.Logger, onPanic func(http.ResponseWriter, *http.Reques
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if v := recover(); v != nil {
-					if v == http.ErrAbortHandler {
+					if err, ok := v.(error); ok && errors.Is(err, http.ErrAbortHandler) {
 						panic(v) // deliberate abort; let net/http handle it.
 					}
 					logger.ErrorContext(r.Context(), "panic recovered",
