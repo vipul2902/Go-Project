@@ -65,3 +65,12 @@ func TestLoadReportsAllErrors(t *testing.T) {
 		}
 	}
 }
+
+// Pool sizes become int32 in pgx; an unbounded value would overflow.
+func TestLoadRejectsHugePool(t *testing.T) {
+	_, err := load(env(map[string]string{"DATABASE_URL": "postgres://x", "REDIS_URL": "redis://x", "JWT_SECRET": testJWTSecret,
+		"DB_MAX_CONNS": "5000000000"}))
+	if err == nil || !strings.Contains(err.Error(), "DB_MAX_CONNS") {
+		t.Fatalf("err = %v, want DB_MAX_CONNS rejected", err)
+	}
+}

@@ -130,7 +130,8 @@ func validateJob(job deployments.Job, allowFileRepos bool) error {
 	u, err := url.Parse(job.RepositoryURL)
 	// No fragment or query: ACR Tasks reads "#ref:dir" from the URL, so a
 	// fragment could swap the commit that was approved for another one.
-	if err != nil || u.User != nil || u.Fragment != "" || u.RawQuery != "" || strings.Contains(job.RepositoryURL, "#") || !(u.Scheme == "https" || (allowFileRepos && u.Scheme == "file")) {
+	schemeOK := u != nil && (u.Scheme == "https" || (allowFileRepos && u.Scheme == "file"))
+	if err != nil || !schemeOK || u.User != nil || u.Fragment != "" || u.RawQuery != "" || strings.Contains(job.RepositoryURL, "#") {
 		return errors.New("repository URL must be https without credentials")
 	}
 	return nil
@@ -170,7 +171,7 @@ func (b *Docker) run(ctx context.Context, dir string, log worker.LogFunc, env []
 	go func() { defer wg.Done(); copyLines(pr, log, b.MaxLogLines) }()
 
 	err := cmd.Run()
-	pw.Close()
+	_ = pw.Close() // a PipeWriter Close always returns nil
 	wg.Wait()
 	if ctx.Err() != nil {
 		return ctx.Err()

@@ -96,12 +96,12 @@ type logs struct {
 func (l *logs) log(_, m string) { l.mu.Lock(); l.lines = append(l.lines, m); l.mu.Unlock() }
 func (l *logs) text() string    { l.mu.Lock(); defer l.mu.Unlock(); return strings.Join(l.lines, "\n") }
 
-func deploy(t *testing.T, d *Deployer, job deployments.Job, image string) (error, *logs) {
+func deploy(t *testing.T, d *Deployer, job deployments.Job, image string) (*logs, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	l := &logs{}
-	return d.Deploy(ctx, job, image, l.log), l
+	return l, d.Deploy(ctx, job, image, l.log)
 }
 
 func readyPods(t *testing.T, cs kubernetes.Interface, ns, deploymentID string) int {
@@ -127,7 +127,7 @@ func TestRolloutSucceedsAndRedeployReplacesPods(t *testing.T) {
 	d := NewDeployer(cs)
 	v1 := newJob(t, cs)
 
-	err, l := deploy(t, d, v1, goodImage)
+	l, err := deploy(t, d, v1, goodImage)
 	if err != nil {
 		t.Fatalf("deploy: %v\n%s", err, l.text())
 	}
@@ -148,7 +148,7 @@ func TestRolloutSucceedsAndRedeployReplacesPods(t *testing.T) {
 
 	// Redeploying (same image, new release) rolls every pod.
 	v2 := release(v1)
-	if err, l := deploy(t, d, v2, goodImage); err != nil {
+	if l, err := deploy(t, d, v2, goodImage); err != nil {
 		t.Fatalf("redeploy: %v\n%s", err, l.text())
 	}
 	if n := readyPods(t, cs, ns, v2.Deployment.ID); n != 2 {
@@ -163,12 +163,12 @@ func TestFailedReleaseKeepsPreviousVersionServing(t *testing.T) {
 	cs := clientset(t)
 	d := NewDeployer(cs)
 	v1 := newJob(t, cs)
-	if err, l := deploy(t, d, v1, goodImage); err != nil {
+	if l, err := deploy(t, d, v1, goodImage); err != nil {
 		t.Fatalf("v1: %v\n%s", err, l.text())
 	}
 
 	v2 := release(v1)
-	err, l := deploy(t, d, v2, crashImage)
+	l, err := deploy(t, d, v2, crashImage)
 	var re *RolloutError
 	if !errors.As(err, &re) || re.Reason != "CrashLoopBackOff" {
 		t.Fatalf("v2 err = %v\n%s", err, l.text())
@@ -189,7 +189,7 @@ func TestFailFastReasons(t *testing.T) {
 
 	t.Run("image cannot be pulled", func(t *testing.T) {
 		begin := time.Now()
-		err, l := deploy(t, d, newJob(t, cs), "cdtest/does-not-exist:"+randHex(3))
+		l, err := deploy(t, d, newJob(t, cs), "cdtest/does-not-exist:"+randHex(3))
 		var re *RolloutError
 		if !errors.As(err, &re) || (re.Reason != "ImagePullBackOff" && re.Reason != "ErrImagePull") {
 			t.Fatalf("err = %v\n%s", err, l.text())
@@ -200,7 +200,7 @@ func TestFailFastReasons(t *testing.T) {
 	t.Run("referenced secret is missing", func(t *testing.T) {
 		job := newJob(t, cs)
 		job.Deployment.Config.Variables = []environments.Variable{{Key: "DB_PASSWORD", Secret: true, SecretRef: strp("db-credentials/password")}}
-		err, l := deploy(t, d, job, goodImage)
+		l, err := deploy(t, d, job, goodImage)
 		var re *RolloutError
 		if !errors.As(err, &re) || re.Reason != "CreateContainerConfigError" || !strings.Contains(re.Detail, "db-credentials") {
 			t.Fatalf("err = %v\n%s", err, l.text())
@@ -225,7 +225,7 @@ func TestSecretReferenceResolvedByKubelet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err, l := deploy(t, d, job, goodImage); err != nil {
+	if l, err := deploy(t, d, job, goodImage); err != nil {
 		t.Fatalf("deploy: %v\n%s", err, l.text())
 	}
 	pods, _ := cs.CoreV1().Pods(ns).List(context.Background(), metav1.ListOptions{LabelSelector: LabelDeploymentID + "=" + job.Deployment.ID})
@@ -243,7 +243,7 @@ func TestRefusesUnmanagedNamespace(t *testing.T) {
 	}, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err, _ := deploy(t, NewDeployer(cs), job, goodImage); !errors.Is(err, ErrNamespaceNotManaged) {
+	if _, err := deploy(t, NewDeployer(cs), job, goodImage); !errors.Is(err, ErrNamespaceNotManaged) {
 		t.Fatalf("err = %v, want ErrNamespaceNotManaged", err)
 	}
 	// Nothing was created in it.
@@ -307,7 +307,7 @@ func TestInspectorHealthAndLogs(t *testing.T) {
 	if h, err := in.Health(ctx, target(job)); err != nil || h.Status != StatusNotDeployed {
 		t.Fatalf("before deploy: %+v %v", h, err)
 	}
-	if err, l := deploy(t, NewDeployer(cs), job, tickerImage); err != nil {
+	if l, err := deploy(t, NewDeployer(cs), job, tickerImage); err != nil {
 		t.Fatalf("deploy: %v\n%s", err, l.text())
 	}
 
@@ -355,7 +355,7 @@ func TestInspectorHealthAndLogs(t *testing.T) {
 
 	// A crash-looping release is reported as failing (not "progressing")
 	// while the previous release keeps serving.
-	if err, _ := deploy(t, NewDeployer(cs), release(job), crashImage); err == nil {
+	if _, err := deploy(t, NewDeployer(cs), release(job), crashImage); err == nil {
 		t.Fatal("crash release succeeded")
 	}
 	h, _ = in.Health(ctx, target(job))

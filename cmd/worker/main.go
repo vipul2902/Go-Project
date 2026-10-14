@@ -49,7 +49,8 @@ func run() error {
 
 	// Connections: one LISTEN, one per loop, one per heartbeat, reaper, spare.
 	pool, err := database.Open(ctx, cfg.DatabaseURL, database.PoolConfig{
-		MaxConns: int32(cfg.Concurrency*2 + 3), MinConns: 1, MaxConnLifetime: cfg.DBMaxConnLifetime, MaxConnIdleTime: 5 * time.Minute,
+		MaxConns: int32(cfg.Concurrency*2 + 3), MinConns: 1, //nolint:gosec // G115: concurrency validated to 1..32
+		MaxConnLifetime: cfg.DBMaxConnLifetime, MaxConnIdleTime: 5 * time.Minute,
 	})
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)

@@ -1,6 +1,9 @@
 package auth
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 // Arbitrary stored hashes must never panic, hang or exhaust memory.
 func FuzzVerifyPassword(f *testing.F) {
@@ -20,7 +23,7 @@ func TestVerifyRejectsAbusiveCostParameters(t *testing.T) {
 		"$argon2id$v=19$m=19456,t=4294967295,p=1$c2FsdHNhbHRzYWx0$aGFzaGhhc2hoYXNoaGFzaA", // effectively infinite time
 		"$argon2id$v=19$m=19456,t=2,p=255$c2FsdHNhbHRzYWx0$aGFzaGhhc2hoYXNoaGFzaA",
 	} {
-		if _, err := VerifyPassword("x", h); err != ErrInvalidHash {
+		if _, err := VerifyPassword("x", h); !errors.Is(err, ErrInvalidHash) {
 			t.Errorf("accepted abusive parameters: %s", h)
 		}
 	}

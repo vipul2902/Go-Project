@@ -109,7 +109,8 @@ func driftReasons(live kube.Health, latest *deployments.Deployment) []string {
 		}
 	}
 	add(live.LiveDeploymentID != latest.ID, "release: cluster runs deployment %s, last successful is %s", live.LiveDeploymentID, latest.ID)
-	add(live.Replicas.Desired != int32(c.Replicas), "replicas: cluster wants %d, deployed with %d", live.Replicas.Desired, c.Replicas)
+	add(live.Replicas.Desired != int32(c.Replicas), //nolint:gosec // G115: replicas validated to 0..MaxReplicas
+		"replicas: cluster wants %d, deployed with %d", live.Replicas.Desired, c.Replicas)
 	add(latest.Image != nil && live.Live.Image != *latest.Image, "image: cluster runs %s, deployed %s", live.Live.Image, deref(latest.Image))
 	add(!sameQuantity(live.Live.CPULimit, c.Resources.CPULimit) || !sameQuantity(live.Live.MemoryLimit, c.Resources.MemoryLimit) ||
 		!sameQuantity(live.Live.CPURequest, c.Resources.CPURequest) || !sameQuantity(live.Live.MemoryRequest, c.Resources.MemoryRequest),

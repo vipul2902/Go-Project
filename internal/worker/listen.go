@@ -40,7 +40,7 @@ func (w *Worker) listenOnce(ctx context.Context) error {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 		defer cancel()
 		if _, err := conn.Exec(cleanup, "UNLISTEN *"); err != nil {
-			conn.Conn().Close(cleanup) // broken: let the pool discard it
+			_ = conn.Conn().Close(cleanup) // broken: let the pool discard it
 		}
 		conn.Release()
 	}()

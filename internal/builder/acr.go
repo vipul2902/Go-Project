@@ -84,7 +84,7 @@ func (b *ACR) Build(ctx context.Context, job deployments.Job, log worker.LogFunc
 		DockerFilePath: to("Dockerfile"),
 		ImageNames:     []*string{&tag},
 		IsPushEnabled:  to(true),
-		Timeout:        to(int32(b.Timeout / time.Second)),
+		Timeout:        to(int32(b.Timeout / time.Second)), //nolint:gosec // G115: minutes, far below int32
 		Platform: &armcontainerregistry.PlatformProperties{
 			OS: to(armcontainerregistry.OSLinux), Architecture: to(armcontainerregistry.ArchitectureAmd64),
 		},
