@@ -94,6 +94,11 @@ helm upgrade --install "$RELEASE" "$CHART" ${CHART_VERSION:+--version "$CHART_VE
   --set worker.builder=dryrun --set worker.deployer=kubernetes \
   --set ingress.enabled=false \
   --wait --timeout 6m || fail "helm install"
+# Helm 4's --wait ("watcher") can return before new pods are Ready (seen in
+# CI), so wait for every rollout explicitly.
+for d in api worker web; do
+  k -n "$NS" rollout status "deployment/$RELEASE-$d" --timeout=300s || fail "rollout of $d"
+done
 
 # ---- 5. drive the API through the web front end -----------------------------
 log "port-forward web -> localhost:$PORT"
