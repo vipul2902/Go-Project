@@ -191,12 +191,7 @@ jobs:
       - name: Pull images
         run: docker pull -q "$IMAGE:$IMAGE_TAG" && docker pull -q "$WEB_IMAGE:$IMAGE_TAG"
       - name: Start k3s
-        run: |
-          curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="$K3S_VERSION" \
-            INSTALL_K3S_EXEC="--docker --disable traefik --disable metrics-server --write-kubeconfig-mode 644" sh -
-          mkdir -p ~/.kube && cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
-          kubectl wait --for=condition=Ready node --all --timeout=180s
-          kubectl -n kube-system rollout status deployment/coredns --timeout=180s
+        run: scripts/k3s-up.sh
       - name: Use the published chart (tags)
         if: github.ref_type == 'tag'
         env:
