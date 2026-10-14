@@ -1,0 +1,36 @@
+# golangci-lint v2. The standard set (errcheck, govet, ineffassign,
+# staticcheck, unused) plus linters for bugs this codebase is exposed to:
+# unclosed HTTP bodies and SQL rows, wrapped-error comparisons, security
+# smells, and ignored errors returned as nil.
+version: "2"
+
+run:
+  timeout: 5m
+  build-tags: [integration, k8s]
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gosec
+    - misspell
+    - nilerr
+    - rowserrcheck
+    - sqlclosecheck
+    - unconvert
+  settings:
+    gosec:
+      excludes:
+        # G204 (subprocess with variable args): the Docker builder runs git and
+        # docker with validated, non-shell arguments by design (ADR-008).
+        - G204
+  exclusions:
+    presets: [std-error-handling]
+    rules:
+      # Tests may ignore errors in setup and use weak randomness.
+      - path: _test\.go
+        linters: [errcheck, gosec]
+
+formatters:
+  enable: [gofmt]
