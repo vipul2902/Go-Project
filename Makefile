@@ -68,14 +68,19 @@ test-stress: ## Integration suite 3x under the race detector, to surface flaky t
 .PHONY: test-all
 test-all: lint test test-integration web-check helm-lint terraform-check ## Everything except cluster tests (add make test-k8s)
 
+.PHONY: vulncheck
+vulncheck: ## Reachable vulnerabilities in Go code and dependencies (same as CI)
+	go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
 .PHONY: fmt
 fmt: ## Format code
 	gofmt -s -w .
 
 .PHONY: lint
-lint: ## Check formatting and run go vet (golangci-lint added in CI phase)
+lint: ## gofmt check, go vet and golangci-lint (same config as CI: .golangci.yml)
 	@test -z "$$(gofmt -s -l .)" || (echo "unformatted files:"; gofmt -s -l .; exit 1)
 	go vet ./...
+	golangci-lint run ./...
 
 .PHONY: tidy
 tidy: ## Tidy go.mod

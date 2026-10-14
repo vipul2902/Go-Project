@@ -1,5 +1,7 @@
 # CloudDeploy
 
+[![CI](https://github.com/vipul2902/Go-Project/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/vipul2902/Go-Project/actions/workflows/ci.yml)
+
 A cloud-native deployment platform: register an application, define its environments, build it, deploy it to Kubernetes, and track status, health, logs and history — with Azure infrastructure provisioned by Terraform.
 
 > **Status:** Phase 18 (Azure) complete and verified offline. CloudDeploy runs on AKS with tenant images built by ACR Tasks, secrets from Key Vault via workload identity, and a one-command deploy. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
@@ -32,16 +34,16 @@ It is a **modular monolith**: one deployable Go binary with clear internal packa
 
 | Area | Choice |
 |---|---|
-| API | Go 1.27, standard library `net/http` routing, `log/slog` JSON logging |
+| API | Go 1.27.2, standard library `net/http` routing, `log/slog` JSON logging |
 | Dashboard | React 19, TypeScript, Vite, TanStack Query, served by nginx |
 | Data | PostgreSQL, Redis *(Phase 2 / 7)* |
 | Runtime | Docker (distroless, non-root), Kubernetes + Helm *(Phase 10–11)* |
 | Cloud | Terraform 1.16 (azurerm 4.x): AKS, ACR, PostgreSQL Flexible Server, Managed Redis, Key Vault (see [docs/azure.md](docs/azure.md)) |
-| CI/CD | GitHub Actions *(Phase 19–20)* |
+| CI/CD | GitHub Actions: lint, unit, integration, k3s, dashboard, Helm, Terraform, image scans ([docs/ci.md](docs/ci.md)) |
 
 ## Quick start
 
-Prerequisites: Go 1.27+, Docker (Colima works), GNU Make.
+Prerequisites: Go 1.27.2+, Docker (Colima works), GNU Make.
 
 ```bash
 cp .env.example .env      # then replace every change-me value (openssl rand -hex 24)
@@ -58,9 +60,10 @@ curl localhost:8080/readyz
 | `make test-all` | Lint, unit, integration, frontend and Helm checks (add `make test-k8s` for cluster tests) |
 | `make fuzz` / `make bench` / `make cover` / `make test-stress` | Fuzzing, benchmarks, combined coverage, 3× race-detector stress run (see [docs/testing.md](docs/testing.md)) |
 | `make test` | Unit tests with the race detector |
+| `make vulncheck` | govulncheck: reachable vulnerabilities in Go code and dependencies |
 | `make test-integration` | Integration tests against real Postgres (`clouddeploy_test` database) |
 | `make db-up` / `make migrate` / `make seed` / `make psql` | Database workflow (see [docs/database.md](docs/database.md)) |
-| `make lint` | gofmt check and `go vet` |
+| `make lint` | gofmt check, `go vet` and golangci-lint (same config as CI) |
 | `make build` | Static binaries in `bin/` (`api`, `worker`) |
 | `make docker-build` | Container image `clouddeploy-api` |
 | `make docker-up` / `make docker-down` | Full stack in containers: Postgres, then migrate job, then API |
@@ -147,6 +150,7 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 
 - [API reference](docs/api.md)
 - [Testing strategy: fuzzing, model-based tests, benchmarks](docs/testing.md)
+- [Continuous integration: workflows, pinned actions, scanners](docs/ci.md)
 - [Observability: metrics, traces, logs, alerts](docs/observability.md)
 - [Terraform: Azure infrastructure, secrets kept out of state](docs/terraform.md)
 - [Running on Azure (AKS): ACR Tasks builds, Key Vault, deploy steps](docs/azure.md)

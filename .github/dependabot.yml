@@ -1,0 +1,29 @@
+# Weekly update PRs. Minor and patch updates are grouped per ecosystem so
+# they arrive as one PR; CI must pass before anything merges.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule: {interval: weekly}
+    groups:
+      go-minor:
+        update-types: [minor, patch]
+  - package-ecosystem: npm
+    directory: /web
+    schedule: {interval: weekly}
+    groups:
+      npm-minor:
+        update-types: [minor, patch]
+  # Keeps the SHA-pinned actions current (the comment tag is updated too).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}
+    groups:
+      actions:
+        update-types: [minor, patch]
+  - package-ecosystem: docker
+    directories: [/, /web]
+    schedule: {interval: weekly}
+  - package-ecosystem: terraform
+    directories: [/infra/terraform/envs/dev, /infra/terraform/envs/staging, /infra/terraform/envs/prod, /infra/terraform/modules/platform]
+    schedule: {interval: weekly}
