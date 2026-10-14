@@ -4,7 +4,7 @@
 
 A cloud-native deployment platform: register an application, define its environments, build it, deploy it to Kubernetes, and track status, health, logs and history — with Azure infrastructure provisioned by Terraform.
 
-> **Status:** Phase 18 (Azure) complete and verified offline. CloudDeploy runs on AKS with tenant images built by ACR Tasks, secrets from Key Vault via workload identity, and a one-command deploy. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
+> **Status:** Phase 19 (CI) complete. Every push runs lint, unit, integration and Kubernetes tests, dashboard checks, Helm and Terraform validation, image builds with vulnerability scans, and secret and dependency scans on GitHub Actions. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
 
 ## Screenshots
 
@@ -144,7 +144,7 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 
 ## Roadmap
 
-0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s ✅ · 11 Helm ✅ · 12 monitoring/logs ✅ · 13 rollback ✅ · 14 dashboard ✅ · 15 test hardening ✅ · 16 observability ✅ · 17 Terraform ✅ · 18 Azure ✅ · 19 CI · 20 CD · 21 security · 22 performance · 23 polish
+0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s ✅ · 11 Helm ✅ · 12 monitoring/logs ✅ · 13 rollback ✅ · 14 dashboard ✅ · 15 test hardening ✅ · 16 observability ✅ · 17 Terraform ✅ · 18 Azure ✅ · 19 CI ✅ · 20 CD · 21 security · 22 performance · 23 polish
 
 ## Documentation
 
