@@ -116,6 +116,12 @@ KCTX      := $(or $(KUBE_CONTEXT),colima)
 KNS       := clouddeploy
 KDEPS_NS  := clouddeploy-deps
 
+.PHONY: e2e
+e2e: ## End-to-end: build images, install the chart in a separate release, deploy a real app via the API
+	docker build -q -t clouddeploy:e2e-local . >/dev/null
+	docker build -q -t clouddeploy-web:e2e-local web/ >/dev/null
+	KUBE_CONTEXT=$(KCTX) IMAGE_REPO=clouddeploy WEB_IMAGE_REPO=clouddeploy-web IMAGE_TAG=e2e-local scripts/e2e.sh
+
 .PHONY: helm-lint
 helm-lint: ## Lint the chart with every values file and check its guards
 	@for v in dev staging prod; do helm lint $(CHART) -f $(CHART)/values-$$v.yaml --quiet || exit 1; done

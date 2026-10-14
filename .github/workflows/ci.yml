@@ -1,15 +1,16 @@
-# Continuous integration: every push to main and every pull request runs the
-# same checks as `make test-all` and `make test-k8s`, plus image builds and
-# security scans. Nothing here deploys anything or needs cloud credentials.
+# Continuous integration: the same checks as `make test-all` and
+# `make test-k8s`, plus image builds and security scans. Runs on every pull
+# request, and is called by cd.yml for every push to main and every tag, so
+# nothing is published without passing it. Nothing here deploys anything or
+# needs cloud credentials.
 #
 # Third-party actions are pinned to full commit SHAs (tags can be moved);
 # Dependabot keeps the pins current.
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_call:
   workflow_dispatch:
 
 # Least privilege: jobs only read the repository.
@@ -17,7 +18,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Distinct group when called from CD, so it never waits on itself.
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   # Superseded pull request runs are cancelled; runs on main always finish.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
