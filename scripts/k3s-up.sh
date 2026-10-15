@@ -7,6 +7,10 @@ set -euo pipefail
 
 : "${K3S_VERSION:?K3S_VERSION is required, e.g. v1.37.1+k3s1}"
 
+# kubectl port-forward through cri-dockerd (the --docker runtime) needs socat
+# on the node (Colima's VM has it); install it if the runner lacks it.
+command -v socat >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq socat >/dev/null; }
+
 curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="$K3S_VERSION" \
   INSTALL_K3S_EXEC="--docker --disable traefik --disable metrics-server --write-kubeconfig-mode 644" sh -
 mkdir -p ~/.kube && cp /etc/rancher/k3s/k3s.yaml ~/.kube/config

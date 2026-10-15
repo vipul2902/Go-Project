@@ -36,6 +36,7 @@ log() { printf '\n==> %s\n' "$*"; }
 fail() { printf '\nE2E FAILED: %s\n' "$*" >&2; diagnostics; exit 1; }
 diagnostics() {
   set +e
+  [[ -s /tmp/e2e-port-forward.log ]] && { echo "---- port-forward"; cat /tmp/e2e-port-forward.log; }
   echo "---- pods"; k get pods -A -o wide
   echo "---- events (last 40)"; k get events -A --sort-by=.lastTimestamp | tail -40
   for c in api worker; do echo "---- $c logs"; k -n "$NS" logs "deploy/$RELEASE-$c" --tail=60 --all-containers; done
@@ -101,14 +102,15 @@ for d in api worker web; do
 done
 
 # ---- 5. drive the API through the web front end -----------------------------
-log "port-forward web -> localhost:$PORT"
-k -n "$NS" port-forward "svc/$RELEASE-web" "$PORT:80" >/dev/null 2>&1 &
+web="http://localhost:$PORT"
+log "port-forward web -> $web"
+k -n "$NS" port-forward "svc/$RELEASE-web" "$PORT:80" >/tmp/e2e-port-forward.log 2>&1 &
 pf=$!
 # Clean up on exit unless E2E_KEEP=1 (to inspect a failed run).
-trap 'kill $pf 2>/dev/null || true; [[ ${E2E_KEEP:-} == 1 ]] || cleanup' EXIT
-for _ in $(seq 30); do curl -sf "localhost:$PORT/" >/dev/null && break; sleep 1; done
+trap 'kill "$pf" 2>/dev/null; [[ ${E2E_KEEP:-} == 1 ]] || cleanup' EXIT
+for _ in $(seq 30); do curl -sf "$web/" >/dev/null && break; sleep 1; done
 
-base="http://localhost:$PORT/api/v1"
+base="$web/api/v1"
 api() { # method path [json] -> body; fails on non-2xx
   local out code
   out=$(curl -s -w '\n%{http_code}' -X "$1" "$base$2" -H "Authorization: Bearer ${token:-}" \
@@ -119,7 +121,7 @@ api() { # method path [json] -> body; fails on non-2xx
 }
 
 log "dashboard"
-curl -sf "localhost:$PORT/" | grep -q '<div id="root">' || fail "dashboard HTML not served"
+curl -sf "$web/" | grep -q '<div id="root">' || fail "dashboard HTML not served at $web"
 
 log "register, create project and environment"
 password=$(openssl rand -hex 16)

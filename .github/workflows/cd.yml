@@ -206,7 +206,7 @@ jobs:
         env:
           IMAGE_REPO: ${{ env.IMAGE }}
           WEB_IMAGE_REPO: ${{ env.WEB_IMAGE }}
-          E2E_KEEP: "1" # the runner is discarded anyway; keeps state for the failure step
+          E2E_KEEP: "1" # the runner is discarded anyway
         run: scripts/e2e.sh
 
   release:
