@@ -136,11 +136,23 @@ func load(getenv func(string) string) (Config, error) {
 // Addr returns the listen address for the HTTP server.
 func (c Config) Addr() string { return fmt.Sprintf(":%d", c.Port) }
 
+// poolSize converts a validated pool size to pgx's int32, clamping at the
+// conversion site as well (Load already rejects values outside 0..maxDBConns).
+func poolSize(n int) int32 {
+	if n < 0 {
+		return 0
+	}
+	if n > maxDBConns {
+		return maxDBConns
+	}
+	return int32(n)
+}
+
 // PoolConfig returns the database pool settings.
 func (c Config) PoolConfig() database.PoolConfig {
 	return database.PoolConfig{
-		MaxConns:        int32(c.DBMaxConns), //nolint:gosec // G115: validated to 1..maxDBConns
-		MinConns:        int32(c.DBMinConns), //nolint:gosec // G115: validated to 0..DBMaxConns
+		MaxConns:        poolSize(c.DBMaxConns),
+		MinConns:        poolSize(c.DBMinConns),
 		MaxConnLifetime: c.DBMaxConnLifetime,
 		MaxConnIdleTime: c.DBMaxConnIdleTime,
 	}

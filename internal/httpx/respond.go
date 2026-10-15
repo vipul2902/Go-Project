@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/vipul2902/clouddeploy/internal/logsafe"
 	"github.com/vipul2902/clouddeploy/internal/middleware"
 )
 
@@ -77,7 +78,7 @@ func TooManyRequests(w http.ResponseWriter, r *http.Request) {
 // WriteInternalError logs err with the request ID and returns a generic 500.
 func WriteInternalError(w http.ResponseWriter, r *http.Request, err error) {
 	slog.ErrorContext(r.Context(), "internal error",
-		"request_id", middleware.RequestIDFrom(r.Context()), "path", r.URL.Path, "err", err)
+		"request_id", middleware.RequestIDFrom(r.Context()), "path", logsafe.Field(r.URL.Path), "err", err)
 	WriteError(w, r, http.StatusInternalServerError, CodeInternal, "internal server error")
 }
 

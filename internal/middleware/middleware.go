@@ -15,6 +15,8 @@ import (
 	"runtime/debug"
 	"strings"
 	"time"
+
+	"github.com/vipul2902/clouddeploy/internal/logsafe"
 )
 
 // HeaderRequestID is the header used to propagate request IDs.
@@ -86,7 +88,7 @@ func Logger(logger *slog.Logger) func(http.Handler) http.Handler {
 			logger.LogAttrs(r.Context(), levelFor(rec.status), "http request",
 				slog.String("request_id", RequestIDFrom(r.Context())),
 				slog.String("method", r.Method),
-				slog.String("path", r.URL.Path),
+				slog.String("path", logsafe.Field(r.URL.Path)),
 				slog.Int("status", rec.status),
 				slog.Int("bytes", rec.bytes),
 				slog.Float64("duration_ms", float64(time.Since(start).Microseconds())/1000),

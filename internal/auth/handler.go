@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/vipul2902/clouddeploy/internal/httpx"
+	"github.com/vipul2902/clouddeploy/internal/logsafe"
 	"github.com/vipul2902/clouddeploy/internal/middleware"
 	"github.com/vipul2902/clouddeploy/internal/ratelimit"
 )
@@ -236,5 +237,5 @@ func noStore(w http.ResponseWriter) {
 }
 
 func logWarn(r *http.Request, msg string) {
-	slog.WarnContext(r.Context(), msg, "request_id", middleware.RequestIDFrom(r.Context()), "path", r.URL.Path)
+	slog.WarnContext(r.Context(), msg, "request_id", middleware.RequestIDFrom(r.Context()), "path", logsafe.Field(r.URL.Path))
 }

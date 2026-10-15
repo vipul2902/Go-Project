@@ -21,3 +21,18 @@ func Line(s string) string {
 		return -1
 	}, s)
 }
+
+// maxFieldLen bounds request-derived values (paths) in structured logs.
+const maxFieldLen = 512
+
+// Field prepares a request-derived value (e.g. a URL path) for a log
+// attribute: no escape sequences or control characters, no CR/LF (so it
+// can never start a forged log line, whatever the log format), and at most
+// maxFieldLen bytes.
+func Field(s string) string {
+	s = strings.ReplaceAll(strings.ReplaceAll(Line(s), "\n", ""), "\r", "")
+	if len(s) > maxFieldLen {
+		s = s[:maxFieldLen] + "…"
+	}
+	return s
+}
