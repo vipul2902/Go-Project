@@ -106,6 +106,18 @@ jobs:
           subject-name: ${{ matrix.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+      # Hand the exact digest to e2e. Tags are not enough: a main run and a
+      # tag run of the same commit both push sha-<commit>, and the last one
+      # wins the tag (seen in the v0.1.0 run).
+      - name: Record digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: mkdir -p digests && echo "$DIGEST" > "digests/${{ matrix.name }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.name }}
+          path: digests/
+          retention-days: 1
       - name: Summary
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
@@ -180,16 +192,27 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+      # "tag@digest": the chart renders repository:tag, and a reference with
+      # both resolves by the digest, so this run deploys exactly what it built.
+      - name: Pin images to this run's digests
+        run: |
+          echo "IMAGE_TAG=$IMAGE_TAG@$(cat digests/clouddeploy)" >> "$GITHUB_ENV"
+          echo "WEB_IMAGE_TAG=$IMAGE_TAG@$(cat digests/clouddeploy-web)" >> "$GITHUB_ENV"
       # Only deploy what this workflow signed.
       - name: Verify signatures
         run: |
-          for img in "$IMAGE:$IMAGE_TAG" "$WEB_IMAGE:$IMAGE_TAG"; do
+          for img in "$IMAGE:$IMAGE_TAG" "$WEB_IMAGE:$WEB_IMAGE_TAG"; do
             cosign verify "$img" --certificate-identity-regexp "$SIGNER" \
               --certificate-oidc-issuer "$OIDC_ISSUER" -o text >/dev/null
             echo "verified $img"
           done
       - name: Pull images
-        run: docker pull -q "$IMAGE:$IMAGE_TAG" && docker pull -q "$WEB_IMAGE:$IMAGE_TAG"
+        run: docker pull -q "$IMAGE:$IMAGE_TAG" && docker pull -q "$WEB_IMAGE:$WEB_IMAGE_TAG"
       - name: Start k3s
         run: scripts/k3s-up.sh
       - name: Use the published chart (tags)

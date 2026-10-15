@@ -89,7 +89,7 @@ helm upgrade --install "$RELEASE" "$CHART" ${CHART_VERSION:+--version "$CHART_VE
   --kube-context "$KUBE_CONTEXT" -n "$NS" \
   -f deploy/helm/clouddeploy/values-staging.yaml \
   --set image.repository="$IMAGE_REPO" --set image.tag="$IMAGE_TAG" \
-  --set web.image.repository="$WEB_IMAGE_REPO" --set web.image.tag="$IMAGE_TAG" \
+  --set web.image.repository="$WEB_IMAGE_REPO" --set web.image.tag="${WEB_IMAGE_TAG:-$IMAGE_TAG}" \
   --set image.pullPolicy=IfNotPresent --set existingSecret=e2e-secrets \
   --set api.replicas=1 --set api.pdb.enabled=false \
   --set worker.builder=dryrun --set worker.deployer=kubernetes \

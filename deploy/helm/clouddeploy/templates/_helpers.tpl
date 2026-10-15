@@ -10,7 +10,8 @@
 {{- define "clouddeploy.labels" -}}
 app.kubernetes.io/name: {{ .Chart.Name }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/version: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
+{{- /* Label values can't hold "@digest": keep the tag part only. */}}
+app.kubernetes.io/version: {{ .Values.image.tag | default .Chart.AppVersion | splitList "@" | first | trunc 63 | trimSuffix "-" | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- end -}}
