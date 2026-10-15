@@ -39,12 +39,15 @@ func (s *Service) Summary(ctx context.Context, userID string) (Summary, error) {
 	if err != nil {
 		return Summary{}, err
 	}
+	// From the per-project daily rollup (migration 00011): the last 30 UTC
+	// days including today. Summing the rollup is independent of how many
+	// deployments exist; counting deployments directly was not.
 	rows, err := s.pool.Query(ctx, `
-		SELECT d.status, count(*) FROM deployments d
-		JOIN projects p ON p.id = d.project_id AND p.deleted_at IS NULL
+		SELECT c.status, sum(c.count)::int FROM deployment_daily_counts c
+		JOIN projects p ON p.id = c.project_id AND p.deleted_at IS NULL
 		JOIN organization_members m ON m.organization_id = p.organization_id AND m.user_id = $1
-		WHERE d.created_at > now() - interval '30 days'
-		GROUP BY d.status`, userID)
+		WHERE c.day > (now() AT TIME ZONE 'UTC')::date - 30
+		GROUP BY c.status`, userID)
 	if err != nil {
 		return Summary{}, err
 	}

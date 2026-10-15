@@ -16,7 +16,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: clouddeploy
     # Tuned for a laptop: few connections, small buffers.
-    command: ["postgres", "-c", "max_connections=50", "-c", "shared_buffers=64MB", "-c", "log_min_duration_statement=250"]
+    # pg_stat_statements: per-query timing for performance work (make perf).
+    command: ["postgres", "-c", "max_connections=50", "-c", "shared_buffers=64MB", "-c", "log_min_duration_statement=250",
+              "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=top"]
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-15432}:5432" # loopback only; 15432 avoids native Postgres installs on 5432/5433
     volumes:

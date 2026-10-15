@@ -70,6 +70,7 @@ curl localhost:8080/readyz
 | `make k8s-up` / `make k8s-down` / `make test-k8s` | Local Kubernetes (Colima k3s) and the deployer tests against it |
 | `make helm-lint` | Lint the Helm chart with every values file and check its safety guards |
 | `make k8s-deploy` / `make k8s-forward` / `make k8s-uninstall` | Run CloudDeploy itself in the cluster with Helm (dev values). `k8s-forward` opens the dashboard on http://localhost:8080. |
+| `make perf` | k6 load test of the API and deployment queue with profiling and query stats (`DEPLOYMENTS=300000` for a large organization; see [docs/performance.md](docs/performance.md)) |
 | `make e2e` | End-to-end: install the chart beside dev and drive a real deployment through the API (same script as CD) |
 | `make obs-up` / `make obs-down` | Opt-in Prometheus, Grafana and Jaeger (see [docs/observability.md](docs/observability.md)) |
 | `make terraform-check` / `make terraform-plan ENV=dev` | Offline fmt, validate and mocked tests; a real plan (needs `az login`). No apply target, on purpose (see [docs/terraform.md](docs/terraform.md)). |
@@ -91,6 +92,7 @@ All configuration comes from environment variables (see [.env.example](.env.exam
 | `DB_MAX_CONNS` / `DB_MIN_CONNS` | `10` / `1` | Pool bounds. Keep `replicas × max` below the server's `max_connections`. |
 | `DB_MAX_CONN_LIFETIME` / `DB_MAX_CONN_IDLE_TIME` | `30m` / `5m` | Connection recycling |
 | `METRICS_PORT` | `9090` | Internal Prometheus endpoint (`0` disables it); never exposed publicly |
+| `PPROF_ENABLED` | `false` | Also serve `/debug/pprof` on the metrics port, for load tests. Refused in production. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | *(empty)* | Enables tracing, for example `http://localhost:4318` (Jaeger). Empty means no tracing and no cost. |
 | `KUBE_CONTEXT` | *(empty)* | API: the cluster for monitoring when running outside one (empty means monitoring returns 503). Worker: required outside a cluster. |
 | `TRUSTED_PROXY_CIDRS` | *(empty)* | Proxies allowed to set `X-Forwarded-For`, read from the right (see [security.md](docs/security.md)) |
@@ -151,6 +153,7 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 
 - [API reference](docs/api.md)
 - [Testing strategy: fuzzing, model-based tests, benchmarks](docs/testing.md)
+- [Performance: load tests, the dashboard fix, sizing](docs/performance.md)
 - [Continuous integration: workflows, pinned actions, scanners](docs/ci.md)
 - [Continuous delivery: signed images, end-to-end test, releases](docs/cd.md)
 - [Observability: metrics, traces, logs, alerts](docs/observability.md)

@@ -29,7 +29,8 @@ const (
 type Config struct {
 	Env             string
 	Port            int
-	MetricsPort     int // internal-only Prometheus endpoint; 0 disables
+	MetricsPort     int  // internal-only Prometheus endpoint; 0 disables
+	Pprof           bool // also serve /debug/pprof on the metrics port (profiling)
 	LogLevel        slog.Level
 	ReadTimeout     time.Duration
 	WriteTimeout    time.Duration
@@ -74,6 +75,7 @@ func load(getenv func(string) string) (Config, error) {
 		Env:             valueOr(getenv("APP_ENV"), EnvDevelopment),
 		Port:            parseInt(getenv, "PORT", 8080, &errs),
 		MetricsPort:     parseInt(getenv, "METRICS_PORT", 9090, &errs),
+		Pprof:           getenv("PPROF_ENABLED") == "true",
 		ReadTimeout:     parseDuration(getenv, "HTTP_READ_TIMEOUT", 10*time.Second, &errs),
 		WriteTimeout:    parseDuration(getenv, "HTTP_WRITE_TIMEOUT", 15*time.Second, &errs),
 		IdleTimeout:     parseDuration(getenv, "HTTP_IDLE_TIMEOUT", 60*time.Second, &errs),
@@ -111,6 +113,12 @@ func load(getenv func(string) string) (Config, error) {
 
 	if cfg.DatabaseURL == "" {
 		errs = append(errs, errors.New("DATABASE_URL: required"))
+	}
+	if cfg.Pprof && cfg.Env == EnvProduction {
+		errs = append(errs, errors.New("PPROF_ENABLED: not allowed in production (profiles expose memory contents)"))
+	}
+	if cfg.Pprof && cfg.MetricsPort == 0 {
+		errs = append(errs, errors.New("PPROF_ENABLED: needs METRICS_PORT (pprof is served on the internal metrics port)"))
 	}
 	if cfg.DBMaxConns < 1 || cfg.DBMaxConns > maxDBConns || cfg.DBMinConns < 0 || cfg.DBMinConns > cfg.DBMaxConns {
 		errs = append(errs, fmt.Errorf("DB_MAX_CONNS/DB_MIN_CONNS: need 0 <= min (%d) <= max (%d), 1 <= max <= %d", cfg.DBMinConns, cfg.DBMaxConns, maxDBConns))

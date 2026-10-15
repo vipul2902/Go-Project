@@ -67,3 +67,30 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go test -race -count=3 -p 1 -tags integration ./...
+
+  performance:
+    name: Performance (k6, 300k deployments)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: grafana/setup-k6-action@43b9fc21641a76002687994433dd586f56e791b1 # v1.2.2
+        with:
+          k6-version: v2.3.0
+      # Throwaway local stack: .env.example values are fine for a database
+      # that exists only for this job.
+      - run: cp .env.example .env && make db-up && make migrate
+      # Fails if a k6 threshold fails (e.g. dashboard p95 >= 100 ms at
+      # 300 req/s with 300k deployments: the Phase 22 regression).
+      - run: make perf
+        env:
+          DEPLOYMENTS: "300000"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: performance
+          path: .perf/
+          retention-days: 30

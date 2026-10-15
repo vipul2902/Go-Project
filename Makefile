@@ -116,6 +116,10 @@ KCTX      := $(or $(KUBE_CONTEXT),colima)
 KNS       := clouddeploy
 KDEPS_NS  := clouddeploy-deps
 
+.PHONY: perf
+perf: ## Load test (k6) the API and deployment queue with profiling; results in .perf/ (needs make db-up)
+	scripts/load/perf.sh
+
 .PHONY: e2e
 e2e: ## End-to-end: build images, install the chart in a separate release, deploy a real app via the API
 	docker build -q -t clouddeploy:e2e-local . >/dev/null

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -104,7 +105,17 @@ func run() error {
 	// Metrics on a separate internal port: never exposed through the public
 	// Service or ingress (they reveal routes, error rates, queue depth).
 	if cfg.MetricsPort != 0 {
-		ms := &http.Server{Addr: fmt.Sprintf(":%d", cfg.MetricsPort), Handler: metrics.Handler(registry), ReadHeaderTimeout: 5 * time.Second}
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", metrics.Handler(registry))
+		if cfg.Pprof {
+			// Profiling for load tests (PPROF_ENABLED; refused in production).
+			mux.HandleFunc("/debug/pprof/", pprof.Index)
+			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+			logger.Warn("pprof enabled on the metrics port")
+		}
+		ms := &http.Server{Addr: fmt.Sprintf(":%d", cfg.MetricsPort), Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 		go func() {
 			if err := ms.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				logger.Error("metrics server", "err", err)

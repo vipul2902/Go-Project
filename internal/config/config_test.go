@@ -74,3 +74,11 @@ func TestLoadRejectsHugePool(t *testing.T) {
 		t.Fatalf("err = %v, want DB_MAX_CONNS rejected", err)
 	}
 }
+
+func TestPprofRefusedInProduction(t *testing.T) {
+	_, err := load(env(map[string]string{"DATABASE_URL": "postgres://x", "REDIS_URL": "redis://x", "JWT_SECRET": testJWTSecret,
+		"APP_ENV": "production", "PPROF_ENABLED": "true"}))
+	if err == nil || !strings.Contains(err.Error(), "PPROF_ENABLED") {
+		t.Fatalf("err = %v, want PPROF_ENABLED refused in production", err)
+	}
+}

@@ -624,3 +624,75 @@ func TestStateMachineModelAgainstDatabase(t *testing.T) {
 	}
 	t.Logf("%d random transitions checked against the model", steps)
 }
+
+// The dashboard's rollup (migration 00011) must equal a direct count through
+// every kind of change: creation, each transition, cancellation and
+// concurrent writers across environments.
+func TestDailyCountsMatchDeployments(t *testing.T) {
+	f := setup(t)
+	svc := deployments.NewService(f.api.Pool)
+	ctx := t.Context()
+	var wg sync.WaitGroup
+	for _, env := range []string{"development", "production"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range 25 {
+				res := f.deploy(f.admin.Token, env, fmt.Sprintf("%07x", rand.IntN(1<<28)))
+				if res.Status != http.StatusAccepted {
+					t.Errorf("%s #%d: %d %v", env, i, res.Status, res.Body)
+					return
+				}
+				id := res.Str("id")
+				switch rand.IntN(4) {
+				case 0: // cancelled while queued
+					if _, err := svc.Cancel(ctx, audit.Actor{UserID: f.admin.ID, OrganizationID: f.admin.OrgID}, id); err != nil {
+						t.Error(err)
+					}
+				default:
+					path := []deployments.Status{deployments.StatusBuilding, deployments.StatusDeploying}
+					final := deployments.StatusRunning
+					if rand.IntN(3) == 0 {
+						final = deployments.StatusFailed
+					}
+					for _, st := range append(path, final) {
+						if _, err := svc.Transition(ctx, id, st, ""); err != nil {
+							t.Errorf("%s -> %s: %v", id, st, err)
+							return
+						}
+					}
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	direct := map[string]int{}
+	rows, _ := f.api.Pool.Query(ctx, `SELECT status, count(*) FROM deployments GROUP BY status`)
+	for rows.Next() {
+		var s string
+		var n int
+		_ = rows.Scan(&s, &n)
+		direct[s] = n
+	}
+	rolled := map[string]int{}
+	rows, _ = f.api.Pool.Query(ctx, `SELECT status, sum(count)::int FROM deployment_daily_counts GROUP BY status HAVING sum(count) > 0`)
+	for rows.Next() {
+		var s string
+		var n int
+		_ = rows.Scan(&s, &n)
+		rolled[s] = n
+	}
+	if fmt.Sprint(direct) != fmt.Sprint(rolled) || len(direct) == 0 {
+		t.Fatalf("rollup %v != direct count %v", rolled, direct)
+	}
+	sum, err := svc.Summary(ctx, f.admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for st, n := range direct {
+		if sum.Last30Days[deployments.Status(st)] != n {
+			t.Errorf("summary %s = %d, want %d", st, sum.Last30Days[deployments.Status(st)], n)
+		}
+	}
+}

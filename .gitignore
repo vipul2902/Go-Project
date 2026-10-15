@@ -45,3 +45,6 @@ deploy/helm/clouddeploy/values-azure.generated.yaml
 
 # Local-only Terraform overrides (e.g. local state for a trial plan)
 *_override.tf
+
+# Performance run output (make perf)
+.perf/

@@ -309,28 +309,43 @@ var ErrInvalidCursor = errors.New("invalid cursor")
 func (s *Service) List(ctx context.Context, userID string, f ListFilter, page httpx.Page) ([]Deployment, *string, error) {
 	args := []any{userID}
 	arg := func(v any) string { args = append(args, v); return fmt.Sprintf("$%d", len(args)) }
-	where := []string{"p.deleted_at IS NULL"}
+	outer := []string{"p.deleted_at IS NULL"}
+	inner := []string{"d.project_id = p.id"}
 	if f.ProjectID != "" {
-		where = append(where, "d.project_id = "+arg(f.ProjectID))
+		outer = append(outer, "p.id = "+arg(f.ProjectID))
 	}
 	if f.Environment != "" {
-		where = append(where, "e.name = "+arg(f.Environment))
+		inner = append(inner, "d.environment_id IN (SELECT id FROM environments WHERE project_id = p.id AND name = "+arg(f.Environment)+")")
 	}
 	if f.Status != "" {
-		where = append(where, "d.status = "+arg(string(f.Status)))
+		inner = append(inner, "d.status = "+arg(string(f.Status)))
 	}
 	if page.Cursor != "" {
 		var c cursor
 		if err := httpx.DecodeCursor(page.Cursor, &c); err != nil || c.ID == "" {
 			return nil, nil, ErrInvalidCursor
 		}
-		where = append(where, fmt.Sprintf("(d.created_at, d.id) < (%s, %s::uuid)", arg(c.CreatedAt), arg(c.ID)))
+		inner = append(inner, fmt.Sprintf("(d.created_at, d.id) < (%s, %s::uuid)", arg(c.CreatedAt), arg(c.ID)))
 	}
-	query := selectDeployment + `
-		JOIN projects p ON p.id = d.project_id
+	// Newest first across every project the caller can see: take the top
+	// limit+1 of each project from the (project_id, created_at) index and
+	// merge, instead of joining and sorting every deployment in the
+	// caller's organizations (300 ms at 300k deployments; Phase 22).
+	limit := arg(page.Limit + 1)
+	query := `
+		SELECT d.id, d.project_id, p.name, d.environment_id, e.name, d.commit_sha, d.image, d.status,
+		       d.triggered_by, u.name, d.rollback_of, d.error_message, d.config,
+		       d.created_at, d.started_at, d.completed_at
+		FROM projects p
 		JOIN organization_members m ON m.organization_id = p.organization_id AND m.user_id = $1
-		WHERE ` + strings.Join(where, " AND ") + `
-		ORDER BY d.created_at DESC, d.id DESC LIMIT ` + arg(page.Limit+1)
+		CROSS JOIN LATERAL (
+			SELECT * FROM deployments d WHERE ` + strings.Join(inner, " AND ") + `
+			ORDER BY d.created_at DESC, d.id DESC LIMIT ` + limit + `
+		) d
+		JOIN environments e ON e.id = d.environment_id
+		LEFT JOIN users u ON u.id = d.triggered_by
+		WHERE ` + strings.Join(outer, " AND ") + `
+		ORDER BY d.created_at DESC, d.id DESC LIMIT ` + limit
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
