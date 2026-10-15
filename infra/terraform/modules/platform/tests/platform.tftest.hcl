@@ -78,8 +78,8 @@ run "secrets_are_write_only" {
   variables { environment = "development" }
 
   assert {
-    condition     = toset(keys(azurerm_key_vault_secret.app)) == toset(["database-url", "redis-url", "jwt-secret"])
-    error_message = "Expected exactly the three app secrets."
+    condition     = toset(keys(azurerm_key_vault_secret.app)) == toset(["database-url", "migrate-database-url", "app-db-password", "redis-url", "jwt-secret"])
+    error_message = "Expected exactly the five app secrets."
   }
   # The plain `value` argument would put the secret into state; only the
   # write-only `value_wo` may be used.

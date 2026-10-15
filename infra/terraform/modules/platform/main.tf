@@ -86,6 +86,13 @@ ephemeral "random_password" "postgres" {
   special = false # stays URL-safe inside DATABASE_URL
 }
 
+# The API and worker's own login (member of clouddeploy_app: row access
+# only), created in-cluster by the migrate job; see migration 00010.
+ephemeral "random_password" "app_db" {
+  length  = 40
+  special = false
+}
+
 ephemeral "random_password" "jwt" {
   length  = 64
   special = false
@@ -156,9 +163,13 @@ locals {
   # Built from ephemeral values, so these locals are ephemeral too and can
   # only flow into write-only arguments.
   app_secrets = {
-    "database-url" = "postgres://${module.postgres.administrator_login}:${ephemeral.random_password.postgres.result}@${module.postgres.fqdn}:5432/${module.postgres.database}?sslmode=require"
-    "redis-url"    = "rediss://:${module.redis.primary_access_key}@${module.redis.hostname}:${module.redis.port}/0"
-    "jwt-secret"   = ephemeral.random_password.jwt.result
+    # API and worker: least-privilege login. Migrate job: server admin, which
+    # also creates that login with app-db-password.
+    "database-url"         = "postgres://clouddeploy_api:${ephemeral.random_password.app_db.result}@${module.postgres.fqdn}:5432/${module.postgres.database}?sslmode=require"
+    "migrate-database-url" = "postgres://${module.postgres.administrator_login}:${ephemeral.random_password.postgres.result}@${module.postgres.fqdn}:5432/${module.postgres.database}?sslmode=require"
+    "app-db-password"      = ephemeral.random_password.app_db.result
+    "redis-url"            = "rediss://:${module.redis.primary_access_key}@${module.redis.hostname}:${module.redis.port}/0"
+    "jwt-secret"           = ephemeral.random_password.jwt.result
   }
 }
 

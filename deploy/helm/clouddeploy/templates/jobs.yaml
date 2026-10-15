@@ -32,11 +32,21 @@ spec:
         - name: migrate
           image: {{ include "clouddeploy.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- $secret := include "clouddeploy.secretName" (dict "root" . "component" "migrate") }}
+          {{- if .Values.migrations.appUser.enabled }}
+          command: ["/migrate", "up", "app-user"]
+          {{- else }}
           command: ["/migrate", "up"]
+          {{- end }}
           # Hooks run before the release's ConfigMap exists: secret only.
           env:
             - name: DATABASE_URL
-              valueFrom: {secretKeyRef: {name: {{ include "clouddeploy.secretName" (dict "root" . "component" "migrate") }}, key: DATABASE_URL}}
+              valueFrom: {secretKeyRef: {name: {{ $secret }}, key: {{ .Values.migrations.secretKey }}}}
+            {{- if .Values.migrations.appUser.enabled }}
+            - {name: APP_DB_USER, value: {{ .Values.migrations.appUser.name | quote }}}
+            - name: APP_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ $secret }}, key: {{ .Values.migrations.appUser.passwordKey }}}}
+            {{- end }}
           resources:
             requests: {cpu: 10m, memory: 16Mi}
             limits: {cpu: 200m, memory: 64Mi}

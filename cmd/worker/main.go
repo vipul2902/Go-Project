@@ -56,6 +56,9 @@ func run() error {
 		return fmt.Errorf("open database: %w", err)
 	}
 	defer pool.Close()
+	if err := database.RequireLeastPrivilege(ctx, pool, logger, cfg.Env == config.EnvProduction); err != nil {
+		return err
+	}
 
 	wcfg := worker.DefaultConfig()
 	wcfg.Concurrency = cfg.Concurrency

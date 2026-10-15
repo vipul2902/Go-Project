@@ -56,6 +56,9 @@ func run() error {
 	// so in-flight requests can still use the database during shutdown.
 	defer pool.Close()
 	logger.Info("database connected", "max_conns", cfg.DBMaxConns)
+	if err := database.RequireLeastPrivilege(ctx, pool, logger, cfg.IsProduction()); err != nil {
+		return err
+	}
 
 	rdb, err := redisx.Open(ctx, cfg.RedisURL)
 	if err != nil {

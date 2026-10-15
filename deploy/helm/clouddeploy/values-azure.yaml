@@ -5,6 +5,12 @@
 # workload identity client IDs. None of them are secrets.
 azure:
   enabled: true
+# The migrate job connects as the server admin and creates the app's login
+# role; the API and worker connect as that role (Key Vault "database-url").
+migrations:
+  secretKey: MIGRATE_DATABASE_URL
+  appUser:
+    enabled: true
 image:
   pullPolicy: IfNotPresent
 worker:

@@ -162,4 +162,5 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 - [Deployment domain: state machine, idempotency, audit](docs/deployment.md)
 - [Kubernetes: tenant deployments, and CloudDeploy on Helm](docs/kubernetes.md)
 - [Database design, ERD and indexes](docs/database.md)
-- [Security: authentication, tokens and RBAC](docs/security.md)
+- [Security: authentication, tokens, RBAC and database privileges](docs/security.md)
+- [Threat model (STRIDE)](docs/threat-model.md) and [security policy](SECURITY.md)

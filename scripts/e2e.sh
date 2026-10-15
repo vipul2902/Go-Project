@@ -54,6 +54,7 @@ cleanup
 # ---- 1. dependencies (in-cluster PostgreSQL and Redis, as in local dev) ----
 log "dependencies"
 pg_password=$(openssl rand -hex 24)
+app_db_password=$(openssl rand -hex 24)
 jwt_secret=$(openssl rand -base64 48 | tr -d '\n')
 k create namespace "$DEPS" --dry-run=client -o yaml | k apply -f - >/dev/null
 printf 'password=%s\n' "$pg_password" | k -n "$DEPS" create secret generic postgres-credentials \
@@ -68,7 +69,13 @@ k -n "$DEPS" rollout status deployment/redis --timeout=120s
 log "namespace and secret"
 k create namespace "$NS" --dry-run=client -o yaml | k apply -f - >/dev/null
 k label namespace "$NS" --overwrite pod-security.kubernetes.io/enforce=restricted >/dev/null
-{ printf 'DATABASE_URL=postgres://clouddeploy:%s@postgres.%s.svc.cluster.local:5432/clouddeploy?sslmode=disable\n' "$pg_password" "$DEPS"
+# Least privilege: the API and worker log in as clouddeploy_api (created by
+# the migrate job as a member of clouddeploy_app); only migrations use the
+# owner. The script asserts below that neither service reports excess rights.
+db_host="postgres.$DEPS.svc.cluster.local:5432/clouddeploy?sslmode=disable"
+{ printf 'DATABASE_URL=postgres://clouddeploy_api:%s@%s\n' "$app_db_password" "$db_host"
+  printf 'MIGRATE_DATABASE_URL=postgres://clouddeploy:%s@%s\n' "$pg_password" "$db_host"
+  printf 'APP_DB_PASSWORD=%s\n' "$app_db_password"
   printf 'REDIS_URL=redis://redis.%s.svc.cluster.local:6379/0\n' "$DEPS"
   printf 'JWT_SECRET=%s\n' "$jwt_secret"; } \
   | k -n "$NS" create secret generic e2e-secrets --from-env-file=/dev/stdin \
@@ -91,6 +98,7 @@ helm upgrade --install "$RELEASE" "$CHART" ${CHART_VERSION:+--version "$CHART_VE
   --set image.repository="$IMAGE_REPO" --set image.tag="$IMAGE_TAG" \
   --set web.image.repository="$WEB_IMAGE_REPO" --set web.image.tag="${WEB_IMAGE_TAG:-$IMAGE_TAG}" \
   --set image.pullPolicy=IfNotPresent --set existingSecret=e2e-secrets \
+  --set migrations.secretKey=MIGRATE_DATABASE_URL --set migrations.appUser.enabled=true \
   --set api.replicas=1 --set api.pdb.enabled=false \
   --set worker.builder=dryrun --set worker.deployer=kubernetes \
   --set ingress.enabled=false \
@@ -144,6 +152,13 @@ if [[ $status != RUNNING ]]; then
   api GET "/deployments/$dep/logs" | jq -r '.items[]? | "\(.level) \(.message)"' | tail -30
   fail "deployment ended in ${status:-timeout}, want RUNNING"
 fi
+
+log "least-privilege database login"
+for c in api worker; do
+  if k -n "$NS" logs "deploy/$RELEASE-$c" | grep -q "more privileges than the application needs"; then
+    fail "$c connected with excess database privileges"
+  fi
+done
 
 log "environment health"
 health=$(api GET "/projects/$project/environments/staging/health")

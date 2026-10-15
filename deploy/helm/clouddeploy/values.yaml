@@ -78,6 +78,16 @@ azure:
 
 migrations:
   enabled: true          # Helm hook Job before install/upgrade
+  # Secret key holding the schema OWNER's connection string. The API and
+  # worker use DATABASE_URL, which should be a least-privilege login (see
+  # appUser); in production they refuse to start with owner privileges.
+  secretKey: DATABASE_URL
+  # After migrating, create/update the application's login role as a member
+  # of clouddeploy_app (row access only, audit log append-only, no DDL).
+  appUser:
+    enabled: false
+    name: clouddeploy_api
+    passwordKey: APP_DB_PASSWORD   # secret key with that role's password
 
 seed:
   enabled: false         # development data; the seed binary refuses non-dev

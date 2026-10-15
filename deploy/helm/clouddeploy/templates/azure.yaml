@@ -12,7 +12,7 @@ the migration Job runs before the release's normal resources exist.
 {{- $components := dict
   "api" (list (list "database-url" "DATABASE_URL") (list "redis-url" "REDIS_URL") (list "jwt-secret" "JWT_SECRET"))
   "worker" (list (list "database-url" "DATABASE_URL"))
-  "migrate" (list (list "database-url" "DATABASE_URL"))
+  "migrate" (list (list "migrate-database-url" "MIGRATE_DATABASE_URL") (list "app-db-password" "APP_DB_PASSWORD"))
 }}
 {{- range $component := list "api" "worker" "migrate" }}
 {{- $keys := index $components $component }}

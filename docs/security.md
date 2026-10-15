@@ -75,6 +75,27 @@ Roles are hierarchical, `admin ⊃ developer ⊃ viewer`, and unknown roles are 
   - CPU, memory and replica counts are capped so one tenant can't exhaust the cluster.
 - Repository URLs with embedded credentials are rejected (Phase 4).
 
+## Database privileges
+
+Two kinds of database login, with different rights:
+
+| Login | Used by | Rights |
+|---|---|---|
+| Schema owner | The migrate job only | DDL: creates and alters tables, creates the application role |
+| `clouddeploy_api`, a member of the `clouddeploy_app` group role | API and worker | `SELECT`, `INSERT`, `UPDATE`, `DELETE` on application tables. **`audit_logs` is append-only:** `UPDATE`, `DELETE` and `TRUNCATE` are revoked, so a compromised API can't erase its own trail. No access to the migration history, no DDL. |
+
+Migration `00010_app_role` creates the group role and its grants. Default privileges give later tables the same DML grants.
+
+`migrate app-user` creates or rotates the login role. It sends the password as a **SCRAM-SHA-256 verifier**, computed in Go, so the plaintext never reaches the server or its statement log.
+
+In Helm, set these values:
+- `migrations.secretKey`: the secret key holding the owner's connection string.
+- `migrations.appUser.enabled: true`: the migrate job runs `migrate up app-user`.
+
+At startup the API and worker check their own connection (`database.RequireLeastPrivilege`): superuser, `CREATEROLE`, `CREATEDB`, `BYPASSRLS` or owning tables count as excess. In **production** excess privileges stop the process. In other environments they log a warning, because local development connects as the owner.
+
+The end-to-end test (CD) runs the API and worker as `clouddeploy_api` and fails if either reports excess privileges. An integration test logs in as an application role and checks each permission: the allowed statements succeed, and every forbidden one is rejected with `insufficient_privilege`.
+
 ## Rate limiting
 
 The limiter uses GCRA in Redis; the design is in [ADR-003](adr/ADR-003-redis.md). Limits apply per subject:
