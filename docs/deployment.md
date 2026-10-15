@@ -122,7 +122,7 @@ The `docker` builder runs these steps, streaming every line of output into the p
 6. **Build** with BuildKit (`docker build --progress=plain`). The image is labelled with `org.opencontainers.image.revision` (the full SHA), `.source`, `dev.clouddeploy.project-id` and `dev.clouddeploy.deployment-id`. No secrets or build arguments are passed.
 7. **Cancel:** interrupting the build sends SIGINT to `docker`, which cancels the BuildKit build in the daemon (verified: no orphaned build processes), with a SIGKILL after 10 seconds.
 
-Images stay in the local Docker daemon, with no registry. Phase 10's local cluster reads them directly; registries (GHCR/ACR) come with CI/CD and Azure.
+Locally, images stay in the Docker daemon with no registry, and the Colima cluster reads them directly. On Azure, builds run on ACR Tasks and push to ACR ([azure.md](azure.md)); the platform's own images are published to GHCR by CD ([cd.md](cd.md)).
 
 The compose `worker` container uses `WORKER_BUILDER=dryrun`. Giving it real builds would mean mounting the Docker socket, which is root access to the host. Run `make worker` natively for real builds. The production approach is in [ADR-008](adr/ADR-008-image-builds.md).
 

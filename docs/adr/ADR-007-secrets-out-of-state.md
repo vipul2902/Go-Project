@@ -19,7 +19,7 @@ Terraform state records every attribute of every managed resource. A `random_pas
   - Workload identity (federated, scoped to exact service accounts) for Key Vault reads.
   - The kubelet identity for ACR pulls.
   - Entra ID only for AKS: local accounts are disabled.
-  - OIDC federation for CI (Phase 19).
+  - OIDC federation for the gated CD deploy job, scoped to the repository's `production` environment.
 
   No client secrets, registry passwords or static kubeconfigs are created.
 

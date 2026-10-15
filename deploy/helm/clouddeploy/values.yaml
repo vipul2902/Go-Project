@@ -2,7 +2,8 @@
 # values-<env>.yaml, never in templates.
 
 image:
-  repository: clouddeploy
+  # Published, signed release images (multi-arch); see docs/cd.md.
+  repository: ghcr.io/vipul2902/clouddeploy
   tag: ""                # defaults to .Chart.AppVersion; use immutable tags (git SHA)
   pullPolicy: IfNotPresent
 
@@ -54,7 +55,7 @@ web:
   enabled: true
   replicas: 2
   image:
-    repository: clouddeploy-web
+    repository: ghcr.io/vipul2902/clouddeploy-web
     tag: ""              # defaults to image.tag
   resources:
     requests: {cpu: 10m, memory: 16Mi}

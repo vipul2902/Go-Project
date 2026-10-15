@@ -17,7 +17,7 @@ Option 3. Single-concern modules (`network`, `acr`, `aks`, `postgres`, `redis`, 
 - **Separate state per environment.** It sits in a separate backend key, so a dev apply can't touch prod state and the blast radius is one environment.
 - **Validation lives in the modules.** Variable `validation`, resource `precondition` and a `check` block for production resilience mean bad input fails at plan time, wherever it comes from.
 - **Tests run offline.** `terraform test` uses `mock_provider` and runs in CI without cloud credentials.
-- **No apply target.** Applying stays manual. In Phase 20 it becomes a CD job gated by an environment approval.
+- **No apply target.** Applying stays a deliberate, reviewed step. The CD pipeline's Azure job deploys releases only, behind a manual environment approval ([cd.md](../cd.md)).
 
 ## Consequences
 

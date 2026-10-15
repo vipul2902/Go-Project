@@ -1,6 +1,6 @@
 # Security
 
-This document is updated as each phase lands. A full review will be in `security-review.md` (Phase 21).
+How CloudDeploy authenticates users, authorizes requests and protects data. The threat model that ties these controls together is in [threat-model.md](threat-model.md).
 
 ## Authentication
 
@@ -38,7 +38,7 @@ Logout revokes the refresh token's family. Access tokens are stateless and **rem
 
 - Login returns the same 401 response for an unknown email and for a wrong password. An unknown email is still checked against a dummy argon2 hash, so both paths take the same time (measured at 27.5 ms vs 27.8 ms).
 - `Authorize` returns *forbidden* for non-members rather than *not found*, so callers can't probe which organizations exist.
-- Registration does reveal whether an email is already taken (409). This is unavoidable for a sign-up form and will be mitigated by rate limiting in Phase 7.
+- Registration does reveal whether an email is already taken (409). This is unavoidable for a sign-up form; registration is rate limited per IP (5 per hour) to slow enumeration.
 
 ### Token transport
 

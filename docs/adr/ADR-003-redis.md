@@ -18,7 +18,7 @@ Redis is often added by reflex. Our rule is that every use must solve a problem 
 ### Why there's no cache yet
 - **No measured need.** Authorization is a single indexed PostgreSQL join that takes well under a millisecond. A cache adds a network round trip of similar cost and saves little.
 - **Security cost.** The hot lookups are *authorization data*. With cache-aside and a TTL, a demoted or removed member keeps their old rights until the entry expires or is invalidated. Delete-after-commit invalidation narrows that window but can't close it: a reader that loaded the old value just before the commit can write it back into the cache.
-- **Revisit when** profiling (Phase 22) shows a hot read path. A likely candidate is dashboard polling of deployment status, if Phase 12 doesn't replace polling with server-sent events.
+- **Revisited after load testing** ([performance.md](../performance.md)). The one hot read path, the dashboard, was database-bound by query shape, not by round trips: a rollup table and per-project top-N queries took it from 424 ms to 1.4 ms. A cache would have hidden the cost rather than removed it, so Redis remains limited to rate limiting. Live status uses server-sent events instead of polling.
 
 For reference, cache-aside works like this: read the cache; on a miss, load from the database and write the value to the cache with a TTL; on a write, update the database and then delete the cache key. Stampedes are prevented with `singleflight`, and a Redis outage falls back to the database.
 

@@ -66,4 +66,4 @@ Important tests were checked by deliberately breaking the code they protect (for
 
 ## Scope
 - Auto-rollback crash recovery behaviour is described in [deployment.md](deployment.md).
-- Load testing is covered in the performance phase (Phase 22).
+- Load testing (k6), profiling and the nightly performance check are covered in [performance.md](performance.md).

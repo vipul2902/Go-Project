@@ -1,6 +1,7 @@
 # Local cluster (Colima k3s). Images are built locally (make k8s-images), so
 # nothing is pulled from a registry.
 image:
+  repository: clouddeploy
   tag: dev
 config:
   appEnv: development
@@ -23,6 +24,8 @@ worker:
     limits: {cpu: 500m, memory: 192Mi}
 web:
   replicas: 1
+  image:
+    repository: clouddeploy-web
 seed:
   enabled: true
 dev:

@@ -100,7 +100,7 @@ Two mock behaviours shaped the code:
 
 What mocks can't tell you is whether Azure *accepts* the plan: quotas, SKU availability in a region, or API-level constraints. Only `make terraform-plan` against a real subscription checks those, and only an apply proves them.
 
-## Wiring into Helm (Phase 18)
+## Wiring into Helm
 
 Outputs carry names and endpoints only, never secret values:
 - `acr_login_server`
