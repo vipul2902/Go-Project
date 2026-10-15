@@ -77,9 +77,16 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - uses: grafana/setup-k6-action@43b9fc21641a76002687994433dd586f56e791b1 # v1.2.2
-        with:
-          k6-version: v2.3.0
+      # k6 from the official release, verified against its checksum file.
+      - name: Install k6
+        env:
+          K6: v2.3.0
+        run: |
+          base="https://github.com/grafana/k6/releases/download/$K6"
+          curl -fsSLO "$base/k6-$K6-linux-amd64.tar.gz" -O "$base/k6-$K6-checksums.txt"
+          grep " k6-$K6-linux-amd64.tar.gz\$" "k6-$K6-checksums.txt" | sha256sum -c -
+          tar -xzf "k6-$K6-linux-amd64.tar.gz" && sudo mv "k6-$K6-linux-amd64/k6" /usr/local/bin/
+          k6 version
       # Throwaway local stack: .env.example values are fine for a database
       # that exists only for this job.
       - run: cp .env.example .env && make db-up && make migrate
