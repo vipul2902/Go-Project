@@ -4,7 +4,7 @@
 
 A cloud-native deployment platform: register an application, define its environments, build it, deploy it to Kubernetes, and track status, health, logs and history — with Azure infrastructure provisioned by Terraform.
 
-> **Status:** Phase 21 (security hardening) complete. Least-privilege database login with an append-only audit trail, a STRIDE threat model, and CodeQL alongside the existing vulnerability, secret and image scans. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
+> **Status:** Phase 22 (performance) complete. k6 load tests with profiling found the dashboard collapsing at 300k deployments (p95 13.1 s); a status rollup and per-project top-N queries brought it to 8.6 ms, guarded by a nightly performance check. The roadmap is built phase-by-phase; see [Roadmap](#roadmap).
 
 ## Screenshots
 
@@ -147,7 +147,7 @@ Every response carries an `X-Request-ID` header. If the client sends a well-form
 
 ## Roadmap
 
-0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s ✅ · 11 Helm ✅ · 12 monitoring/logs ✅ · 13 rollback ✅ · 14 dashboard ✅ · 15 test hardening ✅ · 16 observability ✅ · 17 Terraform ✅ · 18 Azure ✅ · 19 CI ✅ · 20 CD ✅ · 21 security ✅ · 22 performance · 23 polish
+0 audit ✅ · 1 scaffolding ✅ · 2 database ✅ · 3 auth ✅ · 4 orgs/projects ✅ · 5 environments ✅ · 6 deployment domain ✅ · 7 Redis ✅ · 8 async worker ✅ · 9 image builds ✅ · 10 local k8s ✅ · 11 Helm ✅ · 12 monitoring/logs ✅ · 13 rollback ✅ · 14 dashboard ✅ · 15 test hardening ✅ · 16 observability ✅ · 17 Terraform ✅ · 18 Azure ✅ · 19 CI ✅ · 20 CD ✅ · 21 security ✅ · 22 performance ✅ · 23 polish
 
 ## Documentation
 
