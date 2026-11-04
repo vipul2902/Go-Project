@@ -3,7 +3,7 @@
 # ---- build stage: compile static Go binaries ----
 # Runs on the build machine's own platform and cross-compiles for the target
 # (Go needs no emulation for that), so multi-arch release builds stay fast.
-FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS builder
 WORKDIR /src
 
 # Copy module files first so dependency download is cached across code changes.
